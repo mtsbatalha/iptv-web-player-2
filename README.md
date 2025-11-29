@@ -84,16 +84,22 @@ sudo ./install.sh
 
 O instalador irá:
 - Detectar automaticamente seu sistema operacional
-- Instalar todas as dependências (Node.js, MySQL, Nginx, FFmpeg)
+- Instalar todas as dependências (Node.js, MySQL/MariaDB, FFmpeg)
 - Configurar o banco de dados
 - Criar serviço systemd para auto-start
-- Configurar Nginx como reverse proxy
-- (Opcional) Configurar SSL com Let's Encrypt
+- Configurar firewall (UFW)
+
+**Nota:** Use Nginx Proxy Manager para configurar reverse proxy e SSL.
 
 **Scripts disponíveis:**
 - `install.sh` - Instalação completa
 - `update.sh` - Atualizar a aplicação
 - `uninstall.sh` - Remover a instalação
+- `start.sh` - Iniciar o serviço
+- `stop.sh` - Parar o serviço
+- `restart.sh` - Reiniciar o serviço
+- `status.sh` - Ver status detalhado
+- `logs.sh` - Visualizar logs
 
 ### Instalação Manual
 
@@ -134,16 +140,31 @@ npm start
 
 ### Gerenciamento do Serviço (após instalação automática)
 
+Use os scripts incluídos para gerenciar o serviço:
+
 ```bash
-# Status do serviço
-sudo systemctl status iptv-web-player
+# Status detalhado (memória, uptime, disco, etc.)
+sudo ./status.sh
 
 # Iniciar/Parar/Reiniciar
+sudo ./start.sh
+sudo ./stop.sh
+sudo ./restart.sh
+
+# Ver logs
+sudo ./logs.sh           # Seguir logs em tempo real
+sudo ./logs.sh -n 50     # Últimas 50 linhas
+sudo ./logs.sh -e        # Apenas erros
+sudo ./logs.sh -t        # Apenas logs de hoje
+```
+
+Ou use comandos systemctl diretamente:
+
+```bash
+sudo systemctl status iptv-web-player
 sudo systemctl start iptv-web-player
 sudo systemctl stop iptv-web-player
 sudo systemctl restart iptv-web-player
-
-# Ver logs em tempo real
 sudo journalctl -u iptv-web-player -f
 ```
 
