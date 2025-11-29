@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Recordings (optional - remover se quiser incluir)
+recordings/*
+!recordings/.gitkeep
+
+# Uploads (arquivos gerados)
+uploads/avatars/*
+uploads/logos/*
+uploads/playlists/*
+uploads/temp/*
+!uploads/avatars/.gitkeep
+!uploads/logos/.gitkeep
+!uploads/playlists/.gitkeep
+!uploads/temp/.gitkeep
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Invalid files
+nul
+node_modules
