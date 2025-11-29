@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { apiHelpers } from '../../services/api';
+import { Link } from 'react-router-dom';
+import { apiHelpers } from '../services/api';
 import toast from 'react-hot-toast';
 import {
     HiPlus,
@@ -10,11 +11,12 @@ import {
     HiExclamation,
     HiClock,
     HiGlobe,
+    HiChevronLeft,
     HiCalendar
 } from 'react-icons/hi';
 import clsx from 'clsx';
 
-export default function AdminEPG() {
+export default function EPGSettings() {
     const [sources, setSources] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -40,6 +42,7 @@ export default function AdminEPG() {
             setSources(response.data.data.sources || []);
         } catch (error) {
             console.error('Erro ao carregar fontes de EPG:', error);
+            toast.error('Erro ao carregar fontes de EPG');
         } finally {
             setLoading(false);
         }
@@ -57,6 +60,7 @@ export default function AdminEPG() {
             loadSources();
         } catch (error) {
             console.error('Erro ao adicionar fonte:', error);
+            toast.error(error.response?.data?.error?.message || 'Erro ao adicionar fonte');
         } finally {
             setSubmitting(false);
         }
@@ -72,19 +76,14 @@ export default function AdminEPG() {
             loadSources();
         } catch (error) {
             console.error('Erro ao sincronizar:', error);
-            loadSources();
+            toast.error(error.response?.data?.error?.message || 'Erro ao sincronizar EPG');
+            loadSources(); // Reload to show error status
         } finally {
             setSyncingIds(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(sourceId);
                 return newSet;
             });
-        }
-    };
-
-    const handleSyncAll = async () => {
-        for (const source of sources) {
-            await handleSync(source.id);
         }
     };
 
@@ -96,6 +95,7 @@ export default function AdminEPG() {
             loadSources();
         } catch (error) {
             console.error('Erro ao deletar:', error);
+            toast.error(error.response?.data?.error?.message || 'Erro ao remover fonte');
         }
     };
 
@@ -145,10 +145,6 @@ export default function AdminEPG() {
         });
     };
 
-    const getTotalPrograms = () => {
-        return sources.reduce((sum, s) => sum + (s.program_count || 0), 0);
-    };
-
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -161,24 +157,23 @@ export default function AdminEPG() {
         <div className="space-y-6 animate-fade-in">
             {/* Header */}
             <div className="flex items-center justify-between flex-wrap gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-white">Fontes de EPG</h1>
-                    <p className="text-gray-400 text-sm mt-1">
-                        {sources.length} fontes • {getTotalPrograms().toLocaleString('pt-BR')} programas
-                    </p>
+                <div className="flex items-center gap-4">
+                    <Link to="/epg" className="btn-icon" title="Voltar para Grade">
+                        <HiChevronLeft className="w-5 h-5" />
+                    </Link>
+                    <div>
+                        <h1 className="text-2xl font-bold text-white">Fontes de EPG</h1>
+                        <p className="text-gray-400 text-sm mt-1">
+                            Gerencie as fontes de programação (XMLTV)
+                        </p>
+                    </div>
                 </div>
 
                 <div className="flex gap-2">
-                    {sources.length > 0 && (
-                        <button
-                            onClick={handleSyncAll}
-                            className="btn-secondary"
-                            disabled={syncingIds.size > 0}
-                        >
-                            <HiRefresh className={clsx('w-5 h-5', syncingIds.size > 0 && 'animate-spin')} />
-                            Sincronizar Todas
-                        </button>
-                    )}
+                    <Link to="/epg" className="btn-secondary">
+                        <HiCalendar className="w-5 h-5" />
+                        Ver Grade
+                    </Link>
                     <button onClick={() => setShowAddModal(true)} className="btn-primary">
                         <HiPlus className="w-5 h-5" />
                         Adicionar Fonte
@@ -194,16 +189,11 @@ export default function AdminEPG() {
                             <div className="flex items-start justify-between gap-4">
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-3 mb-2">
-                                        <HiGlobe className="w-5 h-5 text-purple-400 flex-shrink-0" />
+                                        <HiGlobe className="w-5 h-5 text-primary-400 flex-shrink-0" />
                                         <h3 className="text-lg font-semibold text-white truncate">
                                             {source.name}
                                         </h3>
                                         {getStatusBadge(source)}
-                                        {source.is_active && (
-                                            <span className="px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">
-                                                Ativo
-                                            </span>
-                                        )}
                                     </div>
 
                                     <p className="text-sm text-gray-400 truncate mb-3" title={source.url}>
@@ -215,9 +205,11 @@ export default function AdminEPG() {
                                             <HiClock className="w-4 h-4" />
                                             Última sync: {formatDate(source.last_updated_at)}
                                         </span>
-                                        <span>
-                                            {(source.program_count || 0).toLocaleString('pt-BR')} programas
-                                        </span>
+                                        {source.program_count > 0 && (
+                                            <span>
+                                                {source.program_count.toLocaleString('pt-BR')} programas
+                                            </span>
+                                        )}
                                         {source.auto_update && (
                                             <span className="text-green-400">
                                                 Auto-atualização: {source.update_interval}h
@@ -262,7 +254,7 @@ export default function AdminEPG() {
                 </div>
             ) : (
                 <div className="card p-12 text-center">
-                    <HiCalendar className="w-16 h-16 mx-auto text-gray-600 mb-4" />
+                    <HiGlobe className="w-16 h-16 mx-auto text-gray-600 mb-4" />
                     <h3 className="text-xl font-semibold text-white mb-2">
                         Nenhuma fonte de EPG
                     </h3>
@@ -275,6 +267,17 @@ export default function AdminEPG() {
                     </button>
                 </div>
             )}
+
+            {/* Info Card */}
+            <div className="card p-4 bg-dark-800/50">
+                <h4 className="font-medium text-white mb-2">Como funciona o EPG?</h4>
+                <ul className="text-sm text-gray-400 space-y-1">
+                    <li>• O EPG (Electronic Program Guide) exibe a programação dos canais</li>
+                    <li>• Adicione uma URL de arquivo XMLTV (geralmente fornecido pelo seu provedor IPTV)</li>
+                    <li>• Após sincronizar, a grade de programação estará disponível</li>
+                    <li>• Os canais são mapeados automaticamente pelo tvg-id da playlist</li>
+                </ul>
+            </div>
 
             {/* Add Modal */}
             {showAddModal && (

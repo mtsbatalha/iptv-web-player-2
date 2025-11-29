@@ -20,6 +20,7 @@ import PlaylistDetail from './pages/PlaylistDetail';
 import Favorites from './pages/Favorites';
 import History from './pages/History';
 import EPG from './pages/EPG';
+import EPGSettings from './pages/EPGSettings';
 import Recordings from './pages/Recordings';
 import Settings from './pages/Settings';
 
@@ -74,6 +75,7 @@ function App() {
                 <Route path="/favorites" element={<Favorites />} />
                 <Route path="/history" element={<History />} />
                 <Route path="/epg" element={<EPG />} />
+                <Route path="/epg/settings" element={<EPGSettings />} />
                 <Route path="/recordings" element={<Recordings />} />
                 <Route path="/settings" element={<Settings />} />
             </Route>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiHelpers } from '../services/api';
-import { HiCalendar, HiPlay, HiChevronLeft, HiChevronRight, HiChevronDoubleLeft, HiChevronDoubleRight } from 'react-icons/hi';
+import { HiCalendar, HiPlay, HiChevronLeft, HiChevronRight, HiChevronDoubleLeft, HiChevronDoubleRight, HiCog } from 'react-icons/hi';
 import clsx from 'clsx';
 
 const CHANNELS_PER_PAGE = 15;
@@ -153,6 +153,11 @@ export default function EPG() {
                     <button onClick={() => changeDate(1)} className="btn-icon" title="Próximo dia">
                         <HiChevronRight className="w-5 h-5" />
                     </button>
+
+                    <Link to="/epg/settings" className="btn-secondary ml-2" title="Configurar fontes de EPG">
+                        <HiCog className="w-5 h-5" />
+                        <span className="hidden sm:inline">Fontes</span>
+                    </Link>
                 </div>
             </div>
 

@@ -130,8 +130,12 @@ export const apiHelpers = {
     getEpgSources: () => api.get('/epg/sources'),
     addEpgSource: (data) => api.post('/epg/sources', data),
     syncEpgSource: (id) => api.post(`/epg/sources/${id}/sync`),
+    deleteEpgSource: (id) => api.delete(`/epg/sources/${id}`),
     getChannelGuide: (channelId, date) => api.get(`/epg/guide/${channelId}`, { params: { date } }),
     getCurrentProgram: (channelId) => api.get(`/epg/now/${channelId}`),
+    searchEpgPrograms: (params) => api.get('/epg/search', { params }),
+    mapChannelEpg: (channelId, epgChannelId) => api.post('/epg/mapping', { channelId, epgChannelId }),
+    autoMapEpg: (playlistId) => api.post('/epg/auto-map', { playlistId }),
 
     // Gravações
     getRecordings: (params) => api.get('/recordings', { params }),
