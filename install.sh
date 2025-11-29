@@ -150,7 +150,8 @@ check_and_configure_ports() {
         SERVER_PORT=$(find_available_port SERVER_PORT_FALLBACKS)
         if [ -z "$SERVER_PORT" ]; then
             log_error "No available port found for API server. Tried: ${SERVER_PORT_FALLBACKS[*]}"
-            read -r -p "Enter a custom port for API server: " SERVER_PORT
+            read -r -p "Enter a custom port for API server: " CUSTOM_PORT
+            SERVER_PORT="$CUSTOM_PORT"
             if ! check_port_available "$SERVER_PORT"; then
                 log_error "Port $SERVER_PORT is also in use!"
                 exit 1
@@ -260,16 +261,14 @@ detect_os() {
         debian)
             if [[ "$VERSION" != "11" && "$VERSION" != "12" && "$VERSION" != "13" ]]; then
                 log_warn "This script is tested on Debian 11/12/13. Your version: $VERSION"
-                read -r -p "Continue anyway? (y/N): " -n 1
-                echo
+                read -r -p "Continue anyway? (y/N): " REPLY
                 [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
             fi
             ;;
         ubuntu)
             if [[ "$VERSION" != "20.04" && "$VERSION" != "22.04" && "$VERSION" != "24.04" ]]; then
                 log_warn "This script is tested on Ubuntu 20.04/22.04/24.04. Your version: $VERSION"
-                read -r -p "Continue anyway? (y/N): " -n 1
-                echo
+                read -r -p "Continue anyway? (y/N): " REPLY
                 [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
             fi
             ;;
@@ -315,9 +314,10 @@ get_user_input() {
     echo ""
     log_warn "Remember to configure Nginx Proxy Manager after installation!"
     echo ""
-    read -r -p "Proceed with installation? (y/N): " -n 1
-    echo
+    read -r -p "Proceed with installation? (y/N): " REPLY
     [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
+
+    log_info "Starting installation process..."
 }
 
 #-------------------------------------------------------------------------------
