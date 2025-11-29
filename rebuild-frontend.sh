@@ -26,6 +26,10 @@ log_warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
 echo ""
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║              IPTV Web Player - Rebuild Frontend                  ║${NC}"
@@ -34,7 +38,7 @@ echo ""
 
 # Check if client directory exists
 if [ ! -d "$CLIENT_DIR" ]; then
-    echo -e "${RED}[ERROR]${NC} Client directory not found: $CLIENT_DIR"
+    log_error "Client directory not found: $CLIENT_DIR"
     exit 1
 fi
 
@@ -58,13 +62,26 @@ log_info "Cleaning build artifacts..."
 rm -rf dist
 rm -rf .vite
 
-# Clear npm cache for this project
-log_info "Clearing npm cache..."
-npm cache clean --force 2>/dev/null || true
-
-if $FULL_CLEAN; then
-    log_info "Installing dependencies..."
+# Check if node_modules exists, if not install dependencies
+if [ ! -d "node_modules" ]; then
+    log_warn "node_modules not found, installing dependencies..."
     npm install
+    if [ $? -ne 0 ]; then
+        log_error "Failed to install dependencies!"
+        exit 1
+    fi
+    log_success "Dependencies installed"
+fi
+
+# Check if vite exists
+if [ ! -f "node_modules/.bin/vite" ]; then
+    log_warn "Vite not found, reinstalling dependencies..."
+    rm -rf node_modules
+    npm install
+    if [ $? -ne 0 ]; then
+        log_error "Failed to install dependencies!"
+        exit 1
+    fi
 fi
 
 # Rebuild
@@ -82,7 +99,7 @@ if npm run build; then
         echo "  - Files: $FILE_COUNT"
     fi
 else
-    echo -e "${RED}[ERROR]${NC} Build failed!"
+    log_error "Build failed!"
     exit 1
 fi
 
