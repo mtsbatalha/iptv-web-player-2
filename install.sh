@@ -387,8 +387,8 @@ install_mysql() {
 
     export DEBIAN_FRONTEND=noninteractive
 
-    # Check if mysql-server is available
-    if apt-cache show mysql-server &> /dev/null; then
+    # Check if mysql-server is actually installable (not just a virtual package)
+    if apt-get install --dry-run mysql-server &> /dev/null; then
         log_info "Installing MySQL Server..."
         apt-get install -y mysql-server
         DB_SERVICE="mysql"
