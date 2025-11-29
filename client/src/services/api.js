@@ -160,7 +160,14 @@ export const apiHelpers = {
     // Admin
     getAdminStats: () => api.get('/admin/stats'),
     getAdminUsers: (params) => api.get('/admin/users', { params }),
+    getAdminUser: (id) => api.get(`/admin/users/${id}`),
+    createAdminUser: (data) => api.post('/admin/users', data),
+    updateAdminUser: (id, data) => api.put(`/admin/users/${id}`, data),
+    deleteAdminUser: (id) => api.delete(`/admin/users/${id}`),
+    resetUserPassword: (id, newPassword) => api.post(`/admin/users/${id}/reset-password`, { newPassword }),
     getAdminPlans: () => api.get('/admin/plans'),
+    createAdminPlan: (data) => api.post('/admin/plans', data),
+    updateAdminPlan: (id, data) => api.put(`/admin/plans/${id}`, data),
     getActivityLogs: (params) => api.get('/admin/logs/activity', { params }),
     getSystemLogs: (params) => api.get('/admin/logs/system', { params })
 };
