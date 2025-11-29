@@ -2,7 +2,7 @@
 
 #===============================================================================
 # IPTV Web Player - Auto Installer
-# Supports: Debian 12/13, Ubuntu 20.04/22.04/24.04
+# Supports: Debian 11/12/13, Ubuntu 20.04/22.04/24.04
 # Note: Use Nginx Proxy Manager for reverse proxy and SSL
 #===============================================================================
 
@@ -46,7 +46,7 @@ print_banner() {
     echo "║                                                                  ║"
     echo "║              IPTV Web Player - Auto Installer                    ║"
     echo "║                                                                  ║"
-    echo "║     Supports: Debian 12/13 | Ubuntu 20.04/22.04/24.04           ║"
+    echo "║     Supports: Debian 11/12/13 | Ubuntu 20.04/22.04/24.04        ║"
     echo "║                                                                  ║"
     echo "║     Note: Configure Nginx Proxy Manager separately              ║"
     echo "║                                                                  ║"
@@ -258,8 +258,8 @@ detect_os() {
 
     case "$OS" in
         debian)
-            if [[ "$VERSION" != "12" && "$VERSION" != "13" ]]; then
-                log_warn "This script is tested on Debian 12/13. Your version: $VERSION"
+            if [[ "$VERSION" != "11" && "$VERSION" != "12" && "$VERSION" != "13" ]]; then
+                log_warn "This script is tested on Debian 11/12/13. Your version: $VERSION"
                 read -r -p "Continue anyway? (y/N): " -n 1
                 echo
                 [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
@@ -275,7 +275,7 @@ detect_os() {
             ;;
         *)
             log_error "Unsupported OS: $OS"
-            log_error "This script supports Debian 12/13 and Ubuntu 20.04/22.04/24.04"
+            log_error "This script supports Debian 11/12/13 and Ubuntu 20.04/22.04/24.04"
             exit 1
             ;;
     esac

@@ -70,7 +70,7 @@ Sistema completo de gerenciamento e reprodução de IPTV, desenvolvido para ambi
 
 ### Instalação Automática (Linux - Recomendado)
 
-Para Debian 12/13 ou Ubuntu 20.04/22.04/24.04, use o script de instalação automática:
+Para Debian 11/12/13 ou Ubuntu 20.04/22.04/24.04, use o script de instalação automática:
 
 ```bash
 # Clone o repositório
