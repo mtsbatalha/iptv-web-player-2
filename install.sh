@@ -373,30 +373,52 @@ install_nodejs() {
 }
 
 #-------------------------------------------------------------------------------
-# MySQL Installation
+# MySQL/MariaDB Installation
 #-------------------------------------------------------------------------------
 
 install_mysql() {
-    log_info "Installing MySQL Server..."
+    log_info "Installing Database Server..."
 
-    # Check if MySQL is already installed
+    # Check if MySQL/MariaDB is already installed
     if command -v mysql &> /dev/null; then
-        log_warn "MySQL is already installed"
+        log_warn "MySQL/MariaDB is already installed"
         return
     fi
 
-    # Install MySQL
     export DEBIAN_FRONTEND=noninteractive
-    apt-get install -y mysql-server
 
-    # Start and enable MySQL
-    systemctl start mysql
-    systemctl enable mysql
+    # Check if mysql-server is available
+    if apt-cache show mysql-server &> /dev/null; then
+        log_info "Installing MySQL Server..."
+        apt-get install -y mysql-server
+        DB_SERVICE="mysql"
+    else
+        # Fallback to MariaDB (available on Debian by default)
+        log_info "MySQL not available, installing MariaDB (MySQL-compatible)..."
+        apt-get install -y mariadb-server
+        DB_SERVICE="mariadb"
+    fi
 
-    # Secure MySQL installation
-    log_info "Securing MySQL installation..."
+    # Start and enable database service
+    systemctl start "$DB_SERVICE"
+    systemctl enable "$DB_SERVICE"
 
-    mysql --user=root <<EOF
+    # Secure installation
+    log_info "Securing database installation..."
+
+    # For MariaDB, we need to handle it differently
+    if [[ "$DB_SERVICE" == "mariadb" ]]; then
+        # MariaDB uses unix_socket auth by default for root
+        mysql --user=root <<EOF
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
+DELETE FROM mysql.user WHERE User='';
+DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+FLUSH PRIVILEGES;
+EOF
+    else
+        mysql --user=root <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASSWORD}';
 DELETE FROM mysql.user WHERE User='';
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
@@ -404,8 +426,9 @@ DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOF
+    fi
 
-    log_success "MySQL installed and secured"
+    log_success "Database server installed and secured ($DB_SERVICE)"
 }
 
 #-------------------------------------------------------------------------------
