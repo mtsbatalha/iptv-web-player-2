@@ -337,11 +337,11 @@ install_dependencies() {
         gnupg \
         ca-certificates \
         apt-transport-https \
-        software-properties-common \
         build-essential \
         openssl \
         unzip \
-        ffmpeg
+        ffmpeg \
+        lsb-release
 
     log_success "Base dependencies installed"
 }
