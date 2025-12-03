@@ -3,9 +3,27 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs/promises';
 
-// Agentes HTTP para conexões persistentes
-const httpAgent = new http.Agent({ keepAlive: true, timeout: 120000 });
-const httpsAgent = new https.Agent({ keepAlive: true, timeout: 120000 });
+// Agentes HTTP com configurações otimizadas para Cloudflare/SSL
+const httpAgent = new http.Agent({
+    keepAlive: true,
+    timeout: 120000,
+    maxSockets: 10
+});
+
+const httpsAgent = new https.Agent({
+    keepAlive: true,
+    timeout: 120000,
+    maxSockets: 10,
+    rejectUnauthorized: true, // Pode ser false para URLs problemáticas
+    minVersion: 'TLSv1.2'
+});
+
+// Agente HTTPS permissivo para URLs com certificados problemáticos
+const httpsAgentInsecure = new https.Agent({
+    keepAlive: true,
+    timeout: 120000,
+    rejectUnauthorized: false
+});
 
 /**
  * Parser de arquivos M3U/M3U8
@@ -18,46 +36,127 @@ export class M3UParser {
     }
 
     /**
-     * Parse de conteúdo M3U a partir de URL
+     * Parse de conteúdo M3U a partir de URL com retry
      */
-    async parseFromUrl(url) {
-        try {
-            console.log(`[M3UParser] Baixando: ${url}`);
-            const startTime = Date.now();
+    async parseFromUrl(url, options = {}) {
+        const maxRetries = options.retries || 3;
+        const allowInsecure = options.allowInsecure || false;
+        let lastError = null;
 
-            const response = await axios.get(url, {
-                timeout: 180000, // 3 minutos para playlists grandes (66MB+)
-                responseType: 'text',
-                maxContentLength: 150 * 1024 * 1024, // 150MB max
-                maxBodyLength: 150 * 1024 * 1024,
-                maxRedirects: 5, // Seguir até 5 redirects
-                decompress: true,
-                httpAgent: httpAgent,
-                httpsAgent: httpsAgent,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': '*/*',
-                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-                    'Accept-Encoding': 'gzip, deflate',
-                    'Connection': 'keep-alive',
-                    'Cache-Control': 'no-cache'
-                },
-                validateStatus: (status) => status < 500
-            });
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`[M3UParser] Tentativa ${attempt}/${maxRetries}: ${url}`);
+                return await this._fetchAndParse(url, allowInsecure, attempt);
+            } catch (error) {
+                lastError = error;
+                console.error(`[M3UParser] Tentativa ${attempt} falhou:`, error.message);
 
-            if (response.status !== 200) {
-                throw new Error(`Servidor retornou status ${response.status}`);
+                // Se for erro de SSL na primeira tentativa, tenta com agente inseguro
+                if (attempt === 1 && this._isSSLError(error) && !allowInsecure) {
+                    console.log('[M3UParser] Erro SSL detectado, tentando modo permissivo...');
+                    try {
+                        return await this._fetchAndParse(url, true, attempt);
+                    } catch (retryError) {
+                        lastError = retryError;
+                        console.error('[M3UParser] Modo permissivo também falhou:', retryError.message);
+                    }
+                }
+
+                // Aguardar antes de próxima tentativa (exceto na última)
+                if (attempt < maxRetries) {
+                    const delay = attempt * 2000; // 2s, 4s, 6s
+                    console.log(`[M3UParser] Aguardando ${delay/1000}s antes de tentar novamente...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
             }
-
-            const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
-            const sizeKB = (response.data.length / 1024).toFixed(2);
-            console.log(`[M3UParser] Download concluído: ${sizeKB}KB em ${downloadTime}s`);
-
-            return this.parse(response.data);
-        } catch (error) {
-            console.error(`[M3UParser] Erro detalhado:`, error.code || error.message);
-            throw new Error(`Erro ao baixar playlist: ${error.message}`);
         }
+
+        throw lastError;
+    }
+
+    /**
+     * Verifica se é erro de SSL/TLS
+     */
+    _isSSLError(error) {
+        const sslErrors = [
+            'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+            'CERT_HAS_EXPIRED',
+            'DEPTH_ZERO_SELF_SIGNED_CERT',
+            'SELF_SIGNED_CERT_IN_CHAIN',
+            'ERR_TLS_CERT_ALTNAME_INVALID',
+            'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+            'certificate',
+            'SSL',
+            'TLS'
+        ];
+
+        const errorStr = (error.code || '') + (error.message || '');
+        return sslErrors.some(e => errorStr.includes(e));
+    }
+
+    /**
+     * Fetch e parse interno
+     */
+    async _fetchAndParse(url, useInsecureAgent = false, attempt = 1) {
+        const startTime = Date.now();
+
+        // Configurar timeout baseado na tentativa (mais tempo em retries)
+        const timeout = 60000 + (attempt * 30000); // 90s, 120s, 150s
+
+        const config = {
+            timeout: timeout,
+            responseType: 'text',
+            maxContentLength: 200 * 1024 * 1024, // 200MB max
+            maxBodyLength: 200 * 1024 * 1024,
+            maxRedirects: 10,
+            decompress: true,
+            httpAgent: httpAgent,
+            httpsAgent: useInsecureAgent ? httpsAgentInsecure : httpsAgent,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/plain, application/x-mpegurl, application/vnd.apple.mpegurl, */*',
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            },
+            validateStatus: (status) => status >= 200 && status < 400
+        };
+
+        // Headers especiais para contornar Cloudflare
+        if (url.includes('cloudflare') || url.includes('cf-')) {
+            config.headers['CF-Connecting-IP'] = '127.0.0.1';
+        }
+
+        console.log(`[M3UParser] Baixando (timeout: ${timeout/1000}s, insecure: ${useInsecureAgent})...`);
+
+        const response = await axios.get(url, config);
+
+        const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        const contentType = response.headers['content-type'] || 'unknown';
+        const sizeKB = response.data ? (response.data.length / 1024).toFixed(2) : 0;
+
+        console.log(`[M3UParser] Download OK: ${sizeKB}KB em ${downloadTime}s (${contentType})`);
+
+        // Verificar se recebemos uma página HTML (possível challenge Cloudflare)
+        if (contentType.includes('text/html') && response.data.includes('<!DOCTYPE')) {
+            if (response.data.includes('cloudflare') || response.data.includes('cf-')) {
+                throw new Error('Cloudflare está bloqueando a requisição. Tente adicionar o IP do servidor na whitelist do Cloudflare.');
+            }
+            if (response.data.includes('captcha') || response.data.includes('challenge')) {
+                throw new Error('O servidor está exigindo verificação CAPTCHA. Não é possível baixar automaticamente.');
+            }
+            // Pode ser uma página de erro
+            console.warn('[M3UParser] Resposta parece ser HTML, verificando conteúdo...');
+        }
+
+        // Verificar conteúdo mínimo
+        if (!response.data || response.data.length < 10) {
+            throw new Error('Resposta vazia ou muito curta do servidor');
+        }
+
+        return this.parse(response.data);
     }
 
     /**
@@ -82,14 +181,25 @@ export class M3UParser {
         // Normalizar quebras de linha
         const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 
-        // Verificar se é um arquivo M3U válido
-        if (!lines[0].trim().startsWith('#EXTM3U')) {
-            throw new Error('Arquivo M3U inválido: header #EXTM3U não encontrado');
+        // Verificar se é um arquivo M3U válido (pode não ter #EXTM3U em algumas playlists)
+        const firstLine = lines[0].trim();
+        if (!firstLine.startsWith('#EXTM3U') && !firstLine.startsWith('#EXTINF')) {
+            // Tentar encontrar #EXTM3U ou #EXTINF nas primeiras linhas
+            let foundM3U = false;
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                if (lines[i].includes('#EXTM3U') || lines[i].includes('#EXTINF')) {
+                    foundM3U = true;
+                    break;
+                }
+            }
+            if (!foundM3U) {
+                throw new Error('Arquivo M3U inválido: header #EXTM3U ou #EXTINF não encontrado');
+            }
         }
 
         let currentChannel = null;
 
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
 
             if (!line) continue;
@@ -111,6 +221,8 @@ export class M3UParser {
             }
             // Ignorar outras tags (#EXTVLCOPT, etc.)
         }
+
+        console.log(`[M3UParser] Parse concluído: ${this.channels.length} canais, ${this.categories.size} categorias`);
 
         return {
             channels: this.channels,
