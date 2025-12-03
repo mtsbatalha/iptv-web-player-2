@@ -37,11 +37,19 @@ export function useRecording(channelId) {
     // Update elapsed time counter
     useEffect(() => {
         if (recording && recording.status === 'recording') {
-            const startTime = new Date(recording.started_at || recording.created_at).getTime();
+            // Get start time, with fallbacks
+            const startDateStr = recording.started_at || recording.created_at;
+            let startTime = startDateStr ? new Date(startDateStr).getTime() : null;
+
+            // If startTime is invalid, use current time as fallback
+            if (!startTime || !Number.isFinite(startTime)) {
+                console.warn('[useRecording] Invalid start time, using current time');
+                startTime = Date.now();
+            }
 
             const updateTimer = () => {
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                setElapsedTime(elapsed);
+                setElapsedTime(Math.max(0, elapsed)); // Ensure non-negative
             };
 
             updateTimer();
@@ -93,9 +101,14 @@ export function useRecording(channelId) {
     }, [recording, loading]);
 
     const formatTime = useCallback((seconds) => {
+        // Handle NaN, undefined, null, or negative values
+        if (!Number.isFinite(seconds) || seconds < 0) {
+            return '0:00';
+        }
+
         const hrs = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
+        const secs = Math.floor(seconds % 60);
 
         if (hrs > 0) {
             return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
