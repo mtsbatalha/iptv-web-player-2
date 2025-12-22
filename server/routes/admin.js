@@ -1,4 +1,5 @@
 import express from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 import { query } from '../database/connection.js';
 import { asyncHandler, Errors } from '../middleware/errorHandler.js';
@@ -160,7 +161,7 @@ router.post('/users', asyncHandler(async (req, res) => {
     const { username, email, password, firstName, lastName, role, planId, status } = req.body;
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const uuid = require('uuid').v4();
+    const uuid = uuidv4();
 
     const result = await query(`
         INSERT INTO users (uuid, username, email, password_hash, first_name, last_name, role, plan_id, status, email_verified_at)
