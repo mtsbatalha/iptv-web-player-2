@@ -88,110 +88,128 @@ router.post('/url', authenticate, checkPlanLimit('playlists'), playlistValidator
     console.log(`[Playlist] Iniciando importação: ${name}`);
     console.log(`[Playlist] URL: ${sourceUrl}`);
 
-    // Validar e fazer parse da playlist
-    let parseResult;
-    try {
-        console.log('[Playlist] Baixando e parseando playlist...');
-        parseResult = await m3uParser.parseFromUrl(sourceUrl);
-        console.log(`[Playlist] Parse concluído: ${parseResult.totalChannels} canais, ${parseResult.totalCategories} categorias`);
-    } catch (error) {
-        console.error('[Playlist] Erro no parse:', error.message);
-        throw Errors.BadRequest(`Erro ao processar playlist: ${error.message}`);
+    // Verificar se já existe playlist com a mesma URL para este usuário
+    const [existingPlaylist] = await query(
+        'SELECT id, name FROM playlists WHERE user_id = ? AND source_url = ?',
+        [req.user.id, sourceUrl]
+    );
+
+    if (existingPlaylist) {
+        throw Errors.BadRequest(`Já existe uma playlist com esta URL: "${existingPlaylist.name}"`);
     }
 
     const uuid = uuidv4();
 
-    // Usar transação para inserir playlist e canais
-    const result = await transaction(async (conn) => {
-        // Inserir playlist
-        const [playlistResult] = await conn.execute(`
-            INSERT INTO playlists (uuid, user_id, name, description, source_type, source_url, auto_update, update_interval, channel_count, sync_status, last_sync_at)
-            VALUES (?, ?, ?, ?, 'url', ?, ?, ?, ?, 'success', NOW())
-        `, [uuid, req.user.id, name, description || null, sourceUrl, autoUpdate !== false, updateInterval || 24, parseResult.totalChannels]);
+    // Criar a playlist imediatamente com status "syncing"
+    const result = await query(`
+        INSERT INTO playlists (uuid, user_id, name, description, source_type, source_url, auto_update, update_interval, channel_count, sync_status)
+        VALUES (?, ?, ?, ?, 'url', ?, ?, ?, 0, 'syncing')
+    `, [uuid, req.user.id, name, description || null, sourceUrl, autoUpdate !== false, updateInterval || 24]);
 
-        const playlistId = playlistResult.insertId;
-        console.log(`[Playlist] Playlist criada com ID: ${playlistId}`);
+    const playlistId = result.insertId;
+    console.log(`[Playlist] Playlist criada com ID: ${playlistId}, processando canais em background...`);
 
-        // Inserir categorias
-        const categoryMap = new Map();
-        console.log(`[Playlist] Inserindo ${parseResult.categories.length} categorias...`);
-
-        for (const categoryName of parseResult.categories) {
-            const slug = categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-            const [catResult] = await conn.execute(`
-                INSERT INTO categories (user_id, playlist_id, name, slug)
-                VALUES (?, ?, ?, ?)
-            `, [req.user.id, playlistId, categoryName, slug]);
-
-            categoryMap.set(categoryName, catResult.insertId);
-        }
-
-        // Inserir canais em lotes usando INSERT múltiplo (muito mais rápido)
-        console.log(`[Playlist] Inserindo ${parseResult.channels.length} canais...`);
-        const BATCH_SIZE = 500; // Lotes maiores para playlists grandes
-        let inserted = 0;
-
-        for (let i = 0; i < parseResult.channels.length; i += BATCH_SIZE) {
-            const batch = parseResult.channels.slice(i, i + BATCH_SIZE);
-
-            if (batch.length > 0) {
-                // Construir INSERT múltiplo
-                const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-                const values = [];
-
-                for (const channel of batch) {
-                    const channelUuid = uuidv4();
-                    const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
-
-                    values.push(
-                        channelUuid,
-                        playlistId,
-                        categoryId,
-                        channel.name,
-                        channel.streamUrl,
-                        channel.tvgLogo || null,
-                        channel.tvgId || null,
-                        channel.tvgName || null,
-                        channel.tvgLogo || null,
-                        channel.groupTitle || null,
-                        channel.language || null,
-                        channel.country || null,
-                        channel.streamType,
-                        channel.isAdult ? 1 : 0,
-                        channel.quality || null
-                    );
-                }
-
-                await conn.execute(`
-                    INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, language, country, stream_type, is_adult, quality)
-                    VALUES ${placeholders}
-                `, values);
-            }
-
-            inserted += batch.length;
-            if (inserted % 500 === 0 || inserted === parseResult.channels.length) {
-                console.log(`[Playlist] Progresso: ${inserted}/${parseResult.channels.length} canais inseridos`);
-            }
-        }
-
-        return playlistId;
-    });
-
-    console.log(`[Playlist] Importação concluída com sucesso!`);
-    await logActivity(req.user.id, 'playlist.create', 'playlist', result, null, { name, sourceUrl }, req);
-
+    // Responder imediatamente ao cliente
     res.status(201).json({
         success: true,
-        message: 'Playlist criada com sucesso',
+        message: 'Playlist criada e sincronizando...',
         data: {
-            playlistId: result,
+            playlistId,
             uuid,
-            channelsImported: parseResult.totalChannels,
-            categoriesImported: parseResult.totalCategories
+            status: 'syncing'
         }
     });
+
+    // Processar canais de forma assíncrona (após resposta)
+    processPlaylistChannels(playlistId, sourceUrl, req.user.id).catch(error => {
+        console.error(`[Playlist] Erro no processamento assíncrono:`, error.message);
+    });
 }));
+
+// Função assíncrona para processar canais da playlist
+async function processPlaylistChannels(playlistId, sourceUrl, userId) {
+    try {
+        console.log(`[Playlist] Baixando e parseando playlist (ID: ${playlistId})...`);
+        const parseResult = await m3uParser.parseFromUrl(sourceUrl);
+        console.log(`[Playlist] Parse concluído: ${parseResult.totalChannels} canais, ${parseResult.totalCategories} categorias`);
+
+        await transaction(async (conn) => {
+            // Inserir categorias
+            const categoryMap = new Map();
+            console.log(`[Playlist] Inserindo ${parseResult.categories.length} categorias...`);
+
+            for (const categoryName of parseResult.categories) {
+                const slug = categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+                const [catResult] = await conn.execute(`
+                    INSERT INTO categories (user_id, playlist_id, name, slug)
+                    VALUES (?, ?, ?, ?)
+                `, [userId, playlistId, categoryName, slug]);
+
+                categoryMap.set(categoryName, catResult.insertId);
+            }
+
+            // Inserir canais em lotes usando INSERT múltiplo
+            console.log(`[Playlist] Inserindo ${parseResult.channels.length} canais...`);
+            const BATCH_SIZE = 500;
+            let inserted = 0;
+
+            for (let i = 0; i < parseResult.channels.length; i += BATCH_SIZE) {
+                const batch = parseResult.channels.slice(i, i + BATCH_SIZE);
+
+                if (batch.length > 0) {
+                    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+                    const values = [];
+
+                    for (const channel of batch) {
+                        const channelUuid = uuidv4();
+                        const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+
+                        values.push(
+                            channelUuid,
+                            playlistId,
+                            categoryId,
+                            channel.name,
+                            channel.streamUrl,
+                            channel.tvgLogo || null,
+                            channel.tvgId || null,
+                            channel.tvgName || null,
+                            channel.tvgLogo || null,
+                            channel.groupTitle || null,
+                            channel.language || null,
+                            channel.country || null,
+                            channel.streamType,
+                            channel.isAdult ? 1 : 0,
+                            channel.quality || null
+                        );
+                    }
+
+                    await conn.execute(`
+                        INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, language, country, stream_type, is_adult, quality)
+                        VALUES ${placeholders}
+                    `, values);
+                }
+
+                inserted += batch.length;
+                if (inserted % 1000 === 0 || inserted === parseResult.channels.length) {
+                    console.log(`[Playlist] Progresso: ${inserted}/${parseResult.channels.length} canais inseridos`);
+                }
+            }
+        });
+
+        // Atualizar status para sucesso
+        await query(`
+            UPDATE playlists SET sync_status = 'success', sync_error = NULL, channel_count = ?, last_sync_at = NOW()
+            WHERE id = ?
+        `, [parseResult.totalChannels, playlistId]);
+
+        console.log(`[Playlist] Importação concluída com sucesso! (ID: ${playlistId})`);
+
+    } catch (error) {
+        console.error(`[Playlist] Erro ao processar playlist (ID: ${playlistId}):`, error.message);
+        await query('UPDATE playlists SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, playlistId]);
+    }
+}
 
 // Criar playlist por upload de arquivo
 router.post('/upload', authenticate, checkPlanLimit('playlists'), uploadPlaylist, asyncHandler(async (req, res) => {
@@ -207,7 +225,7 @@ router.post('/upload', authenticate, checkPlanLimit('playlists'), uploadPlaylist
     try {
         parseResult = await m3uParser.parseFromFile(req.file.path);
     } catch (error) {
-        await deleteFile(req.file.path).catch(() => {});
+        await deleteFile(req.file.path).catch(() => { });
         throw Errors.BadRequest(`Erro ao processar arquivo: ${error.message}`);
     }
 

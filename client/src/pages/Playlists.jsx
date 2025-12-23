@@ -38,22 +38,43 @@ export default function Playlists() {
         }
     };
 
+    const closeModal = () => {
+        setShowAddModal(false);
+        setSubmitting(false);
+        setFormData({ name: '', sourceUrl: '', autoUpdate: true, updateInterval: 24 });
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // Prevenir duplo clique
+        if (submitting) return;
+
         setSubmitting(true);
 
         try {
             if (addType === 'url') {
-                await apiHelpers.createPlaylistFromUrl({
+                const response = await apiHelpers.createPlaylistFromUrl({
                     name: formData.name,
                     sourceUrl: formData.sourceUrl,
                     autoUpdate: formData.autoUpdate,
                     updateInterval: formData.updateInterval
                 });
+
+                // Verificar se está sincronizando ou já concluiu
+                if (response.data.data.status === 'syncing') {
+                    toast.success('Playlist criada! Sincronizando canais em background...', { duration: 4000 });
+                } else {
+                    toast.success('Playlist adicionada com sucesso!');
+                }
             } else {
                 const file = fileInputRef.current?.files[0];
                 if (!file) {
                     toast.error('Selecione um arquivo');
+                    setSubmitting(false);
                     return;
                 }
 
@@ -62,14 +83,17 @@ export default function Playlists() {
                 formDataObj.append('name', formData.name || file.name);
 
                 await apiHelpers.uploadPlaylist(formDataObj);
+                toast.success('Playlist adicionada com sucesso!');
             }
 
-            toast.success('Playlist adicionada com sucesso!');
-            setShowAddModal(false);
-            setFormData({ name: '', sourceUrl: '', autoUpdate: true, updateInterval: 24 });
+            // Fechar modal e resetar form
+            closeModal();
+
+            // Recarregar lista imediatamente
             loadPlaylists();
         } catch (error) {
-            toast.error(error.response?.data?.error?.message || 'Erro ao adicionar playlist');
+            const errorMsg = error.response?.data?.error?.message || 'Erro ao adicionar playlist';
+            toast.error(errorMsg);
         } finally {
             setSubmitting(false);
         }
@@ -330,9 +354,8 @@ export default function Playlists() {
                             <div className="flex gap-3 mt-6">
                                 <button
                                     type="button"
-                                    onClick={() => setShowAddModal(false)}
+                                    onClick={closeModal}
                                     className="btn btn-secondary flex-1"
-                                    disabled={submitting}
                                 >
                                     Cancelar
                                 </button>
