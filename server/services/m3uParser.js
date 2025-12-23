@@ -65,7 +65,7 @@ export class M3UParser {
                 // Aguardar antes de próxima tentativa (exceto na última)
                 if (attempt < maxRetries) {
                     const delay = attempt * 2000; // 2s, 4s, 6s
-                    console.log(`[M3UParser] Aguardando ${delay/1000}s antes de tentar novamente...`);
+                    console.log(`[M3UParser] Aguardando ${delay / 1000}s antes de tentar novamente...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
@@ -129,7 +129,7 @@ export class M3UParser {
             config.headers['CF-Connecting-IP'] = '127.0.0.1';
         }
 
-        console.log(`[M3UParser] Baixando (timeout: ${timeout/1000}s, insecure: ${useInsecureAgent})...`);
+        console.log(`[M3UParser] Baixando (timeout: ${timeout / 1000}s, insecure: ${useInsecureAgent})...`);
 
         const response = await axios.get(url, config);
 
@@ -177,6 +177,7 @@ export class M3UParser {
     parse(content) {
         this.channels = [];
         this.categories = new Set();
+        let epgUrl = null;
 
         // Normalizar quebras de linha
         const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -194,6 +195,24 @@ export class M3UParser {
             }
             if (!foundM3U) {
                 throw new Error('Arquivo M3U inválido: header #EXTM3U ou #EXTINF não encontrado');
+            }
+        }
+
+        // Extrair URL do EPG do header #EXTM3U
+        for (let i = 0; i < Math.min(5, lines.length); i++) {
+            const line = lines[i].trim();
+            if (line.startsWith('#EXTM3U')) {
+                // Tentar diferentes formatos de atributo de EPG
+                const urlTvgMatch = line.match(/url-tvg="([^"]+)"/i);
+                const xTvgUrlMatch = line.match(/x-tvg-url="([^"]+)"/i);
+                const tvgUrlMatch = line.match(/tvg-url="([^"]+)"/i);
+
+                epgUrl = urlTvgMatch?.[1] || xTvgUrlMatch?.[1] || tvgUrlMatch?.[1] || null;
+
+                if (epgUrl) {
+                    console.log(`[M3UParser] EPG URL encontrada no header: ${epgUrl}`);
+                }
+                break;
             }
         }
 
@@ -222,13 +241,14 @@ export class M3UParser {
             // Ignorar outras tags (#EXTVLCOPT, etc.)
         }
 
-        console.log(`[M3UParser] Parse concluído: ${this.channels.length} canais, ${this.categories.size} categorias`);
+        console.log(`[M3UParser] Parse concluído: ${this.channels.length} canais, ${this.categories.size} categorias${epgUrl ? ', EPG URL detectada' : ''}`);
 
         return {
             channels: this.channels,
             categories: Array.from(this.categories),
             totalChannels: this.channels.length,
-            totalCategories: this.categories.size
+            totalCategories: this.categories.size,
+            epgUrl: epgUrl
         };
     }
 

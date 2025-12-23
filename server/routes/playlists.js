@@ -203,6 +203,33 @@ async function processPlaylistChannels(playlistId, sourceUrl, userId) {
             WHERE id = ?
         `, [parseResult.totalChannels, playlistId]);
 
+        // Se houver URL de EPG embutida, criar fonte de EPG automaticamente
+        if (parseResult.epgUrl) {
+            console.log(`[Playlist] EPG URL detectada: ${parseResult.epgUrl}`);
+            try {
+                // Verificar se já existe fonte de EPG com esta URL
+                const [existingEpg] = await query(
+                    'SELECT id FROM epg_sources WHERE user_id = ? AND url = ?',
+                    [userId, parseResult.epgUrl]
+                );
+
+                if (!existingEpg) {
+                    // Criar nova fonte de EPG
+                    const epgResult = await query(`
+                        INSERT INTO epg_sources (user_id, name, url, auto_update, update_interval, is_active, sync_status)
+                        VALUES (?, ?, ?, TRUE, 6, TRUE, 'pending')
+                    `, [userId, `EPG - Playlist #${playlistId}`, parseResult.epgUrl]);
+
+                    console.log(`[Playlist] Fonte de EPG criada automaticamente (ID: ${epgResult.insertId})`);
+                } else {
+                    console.log(`[Playlist] Fonte de EPG já existe (ID: ${existingEpg.id})`);
+                }
+            } catch (epgError) {
+                console.error(`[Playlist] Erro ao criar fonte de EPG:`, epgError.message);
+                // Não falhar a playlist por causa do EPG
+            }
+        }
+
         console.log(`[Playlist] Importação concluída com sucesso! (ID: ${playlistId})`);
 
     } catch (error) {
