@@ -555,7 +555,7 @@ PLAYLIST_UPDATE_INTERVAL=24
 EOF
 
     chown ${APP_USER}:${APP_USER} ${INSTALL_DIR}/.env
-    chmod 600 ${INSTALL_DIR}/.env
+    chmod 644 ${INSTALL_DIR}/.env
 
     log_success "Environment configuration created"
 }
@@ -569,15 +569,18 @@ install_npm_dependencies() {
 
     cd ${INSTALL_DIR}
 
-    # Install backend dependencies
-    sudo -u ${APP_USER} npm install --omit=dev
+    # Install backend dependencies (run as root to avoid permission issues)
+    npm install --omit=dev
 
     # Install and build frontend
     cd ${INSTALL_DIR}/client
-    sudo -u ${APP_USER} npm install
+    npm install
 
     # Build frontend
-    sudo -u ${APP_USER} npm run build
+    npm run build
+
+    # Fix ownership after npm install
+    chown -R ${APP_USER}:${APP_USER} ${INSTALL_DIR}
 
     log_success "NPM dependencies installed and frontend built"
 }
@@ -590,10 +593,10 @@ run_migrations() {
     log_info "Running database migrations..."
 
     cd ${INSTALL_DIR}
-    sudo -u ${APP_USER} npm run db:migrate
+    npm run db:migrate
 
     log_info "Running database seed..."
-    sudo -u ${APP_USER} npm run db:seed
+    npm run db:seed
 
     log_success "Database migrations completed"
 }
@@ -609,12 +612,12 @@ create_systemd_service() {
 [Unit]
 Description=IPTV Web Player
 Documentation=https://github.com/your-repo/iptv-web-player
-After=network.target mysql.service
+After=network.target mysql.service mariadb.service
 
 [Service]
 Type=simple
-User=${APP_USER}
-Group=${APP_USER}
+User=root
+Group=root
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
@@ -624,11 +627,9 @@ StandardError=syslog
 SyslogIdentifier=iptv-web-player
 Environment=NODE_ENV=production
 
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=${INSTALL_DIR}/uploads ${INSTALL_DIR}/uploads/playlists ${INSTALL_DIR}/uploads/avatars ${INSTALL_DIR}/uploads/epg ${INSTALL_DIR}/recordings ${INSTALL_DIR}/logs
+# Increased limits for production
+LimitNOFILE=65535
+LimitNPROC=65535
 
 [Install]
 WantedBy=multi-user.target
