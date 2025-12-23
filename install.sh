@@ -487,13 +487,22 @@ install_application() {
         exit 1
     fi
 
-    # Create required directories
+    # Create required directories with all subdirectories
     mkdir -p ${INSTALL_DIR}/uploads
+    mkdir -p ${INSTALL_DIR}/uploads/playlists
+    mkdir -p ${INSTALL_DIR}/uploads/avatars
+    mkdir -p ${INSTALL_DIR}/uploads/epg
     mkdir -p ${INSTALL_DIR}/recordings
     mkdir -p ${INSTALL_DIR}/logs
 
     # Set ownership
     chown -R ${APP_USER}:${APP_USER} ${INSTALL_DIR}
+
+    # Set proper permissions for data directories
+    chmod -R 755 ${INSTALL_DIR}
+    chmod -R 777 ${INSTALL_DIR}/uploads
+    chmod -R 777 ${INSTALL_DIR}/recordings
+    chmod -R 777 ${INSTALL_DIR}/logs
 
     log_success "Application files copied to ${INSTALL_DIR}"
 }
@@ -619,7 +628,7 @@ Environment=NODE_ENV=production
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${INSTALL_DIR}/uploads ${INSTALL_DIR}/recordings ${INSTALL_DIR}/logs
+ReadWritePaths=${INSTALL_DIR}/uploads ${INSTALL_DIR}/uploads/playlists ${INSTALL_DIR}/uploads/avatars ${INSTALL_DIR}/uploads/epg ${INSTALL_DIR}/recordings ${INSTALL_DIR}/logs
 
 [Install]
 WantedBy=multi-user.target
