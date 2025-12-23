@@ -399,77 +399,116 @@ router.post('/:id/sync', authenticate, idValidator, asyncHandler(async (req, res
         throw Errors.BadRequest('Apenas playlists por URL podem ser sincronizadas');
     }
 
+    // Verificar se já está sincronizando
+    const [currentStatus] = await query('SELECT sync_status FROM playlists WHERE id = ?', [id]);
+    if (currentStatus?.sync_status === 'syncing') {
+        return res.json({
+            success: true,
+            message: 'Playlist já está sendo sincronizada',
+            data: { status: 'syncing' }
+        });
+    }
+
     // Marcar como sincronizando
     await query('UPDATE playlists SET sync_status = ? WHERE id = ?', ['syncing', id]);
 
+    // Responder imediatamente
+    res.json({
+        success: true,
+        message: 'Sincronização iniciada em background',
+        data: { status: 'syncing' }
+    });
+
+    // Processar em background
+    syncPlaylistChannels(id, playlist.source_url, req.user.id).catch(error => {
+        console.error(`[Sync] Erro no sync assíncrono (ID: ${id}):`, error.message);
+    });
+}));
+
+// Função assíncrona para sincronizar canais da playlist
+async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
     try {
+        console.log(`[Sync] Iniciando sincronização (ID: ${playlistId})...`);
+
         // Fazer parse
-        const parseResult = await m3uParser.parseFromUrl(playlist.source_url);
+        const parseResult = await m3uParser.parseFromUrl(sourceUrl);
+        console.log(`[Sync] Parse concluído: ${parseResult.totalChannels} canais, ${parseResult.totalCategories} categorias`);
 
         // Deletar canais e categorias antigos
-        await query('DELETE FROM channels WHERE playlist_id = ?', [id]);
-        await query('DELETE FROM categories WHERE playlist_id = ?', [id]);
+        await query('DELETE FROM channels WHERE playlist_id = ?', [playlistId]);
+        await query('DELETE FROM categories WHERE playlist_id = ?', [playlistId]);
 
-        // Reinserir
+        // Inserir categorias
         const categoryMap = new Map();
-
         for (const categoryName of parseResult.categories) {
             const slug = categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
             const result = await query(`
                 INSERT INTO categories (user_id, playlist_id, name, slug)
                 VALUES (?, ?, ?, ?)
-            `, [req.user.id, id, categoryName, slug]);
-
+            `, [userId, playlistId, categoryName, slug]);
             categoryMap.set(categoryName, result.insertId);
         }
 
-        for (const channel of parseResult.channels) {
-            const channelUuid = uuidv4();
-            const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+        // Inserir canais em lotes usando INSERT múltiplo
+        console.log(`[Sync] Inserindo ${parseResult.channels.length} canais...`);
+        const BATCH_SIZE = 500;
+        let inserted = 0;
 
-            await query(`
-                INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, language, country, stream_type, is_adult, quality)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                channelUuid,
-                id,
-                categoryId,
-                channel.name,
-                channel.streamUrl,
-                channel.tvgLogo || null,
-                channel.tvgId || null,
-                channel.tvgName || null,
-                channel.tvgLogo || null,
-                channel.groupTitle || null,
-                channel.language || null,
-                channel.country || null,
-                channel.streamType,
-                channel.isAdult,
-                channel.quality || null
-            ]);
+        for (let i = 0; i < parseResult.channels.length; i += BATCH_SIZE) {
+            const batch = parseResult.channels.slice(i, i + BATCH_SIZE);
+
+            if (batch.length > 0) {
+                const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+                const values = [];
+
+                for (const channel of batch) {
+                    const channelUuid = uuidv4();
+                    const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+
+                    values.push(
+                        channelUuid,
+                        playlistId,
+                        categoryId,
+                        channel.name,
+                        channel.streamUrl,
+                        channel.tvgLogo || null,
+                        channel.tvgId || null,
+                        channel.tvgName || null,
+                        channel.tvgLogo || null,
+                        channel.groupTitle || null,
+                        channel.language || null,
+                        channel.country || null,
+                        channel.streamType,
+                        channel.isAdult ? 1 : 0,
+                        channel.quality || null
+                    );
+                }
+
+                await query(`
+                    INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, language, country, stream_type, is_adult, quality)
+                    VALUES ${placeholders}
+                `, values);
+            }
+
+            inserted += batch.length;
+            if (inserted % 1000 === 0 || inserted === parseResult.channels.length) {
+                console.log(`[Sync] Progresso: ${inserted}/${parseResult.channels.length} canais`);
+            }
         }
 
-        // Atualizar status
+        // Atualizar status para sucesso
         await query(`
             UPDATE playlists SET sync_status = 'success', sync_error = NULL, channel_count = ?, last_sync_at = NOW()
             WHERE id = ?
-        `, [parseResult.totalChannels, id]);
+        `, [parseResult.totalChannels, playlistId]);
 
-        res.json({
-            success: true,
-            message: 'Playlist sincronizada com sucesso',
-            data: {
-                channelsImported: parseResult.totalChannels,
-                categoriesImported: parseResult.totalCategories
-            }
-        });
+        console.log(`[Sync] Sincronização concluída com sucesso! (ID: ${playlistId})`);
 
     } catch (error) {
-        await query('UPDATE playlists SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, id]);
-        throw error;
+        console.error(`[Sync] Erro ao sincronizar playlist (ID: ${playlistId}):`, error.message);
+        await query('UPDATE playlists SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, playlistId]);
     }
-}));
+}
 
 // Deletar playlist
 router.delete('/:id', authenticate, idValidator, asyncHandler(async (req, res) => {
