@@ -15,6 +15,7 @@ router.get('/', authenticate, paginationValidator, asyncHandler(async (req, res)
     const {
         playlistId,
         categoryId,
+        groupTitle,
         search,
         streamType,
         quality,
@@ -44,6 +45,11 @@ router.get('/', authenticate, paginationValidator, asyncHandler(async (req, res)
     if (categoryId) {
         sql += ' AND c.category_id = ?';
         params.push(categoryId);
+    }
+
+    if (groupTitle) {
+        sql += ' AND c.group_title = ?';
+        params.push(groupTitle);
     }
 
     if (search) {
