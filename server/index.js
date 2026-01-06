@@ -170,6 +170,9 @@ async function startServer() {
         process.exit(1);
     }
 
+    // Inicializar scheduler de jobs (atualização automática de playlists, EPG, etc)
+    await import('./jobs/scheduler.js');
+
     app.listen(PORT, () => {
         console.log(`
 ╔═══════════════════════════════════════════════════════╗
