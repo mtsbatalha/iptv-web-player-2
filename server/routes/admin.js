@@ -466,4 +466,95 @@ router.post('/epg/sources/:id/sync', idValidator, asyncHandler(async (req, res) 
     });
 }));
 
+// ==================== PLAYLISTS ADMIN ====================
+
+// Listar todas as playlists (admin)
+router.get('/playlists', asyncHandler(async (req, res) => {
+    const playlists = await query(`
+        SELECT 
+            p.id, p.name, p.source_url, p.sync_status, p.sync_error,
+            p.channel_count, p.auto_update, p.update_interval,
+            p.last_sync_at, p.created_at, p.updated_at,
+            u.username as owner
+        FROM playlists p
+        LEFT JOIN users u ON p.user_id = u.id
+        ORDER BY p.sync_status = 'syncing' DESC, p.updated_at DESC
+    `);
+
+    res.json({
+        success: true,
+        data: { playlists }
+    });
+}));
+
+// Resetar playlists travadas
+router.post('/playlists/reset-stuck', asyncHandler(async (req, res) => {
+    const result = await query(`
+        UPDATE playlists
+        SET sync_status = 'pending',
+            sync_error = 'Resetada manualmente pelo admin'
+        WHERE sync_status = 'syncing'
+    `);
+
+    await logActivity(req.user.id, 'admin.playlist.reset_stuck', 'playlist', null, null, { count: result.affectedRows }, req);
+
+    res.json({
+        success: true,
+        message: `${result.affectedRows} playlists resetadas`,
+        data: { affectedRows: result.affectedRows }
+    });
+}));
+
+// Resetar playlist específica
+router.post('/playlists/:id/reset', idValidator, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    await query(`
+        UPDATE playlists
+        SET sync_status = 'pending',
+            sync_error = NULL
+        WHERE id = ?
+    `, [id]);
+
+    await logActivity(req.user.id, 'admin.playlist.reset', 'playlist', id, null, null, req);
+
+    res.json({
+        success: true,
+        message: 'Playlist resetada para re-sincronização'
+    });
+}));
+
+// Forçar sync de playlist específica
+router.post('/playlists/:id/sync', idValidator, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    const [playlist] = await query('SELECT id, source_url, user_id FROM playlists WHERE id = ?', [id]);
+
+    if (!playlist) {
+        throw Errors.NotFound('Playlist');
+    }
+
+    if (!playlist.source_url) {
+        throw Errors.BadRequest('Playlist não possui URL de origem');
+    }
+
+    // Import dinâmico do updatePlaylist
+    const { updatePlaylist } = await import('../jobs/scheduler.js');
+
+    // Marcar como syncing
+    await query('UPDATE playlists SET sync_status = ? WHERE id = ?', ['syncing', id]);
+
+    // Responder imediatamente
+    res.json({
+        success: true,
+        message: 'Sincronização iniciada'
+    });
+
+    // Executar sync em background
+    updatePlaylist(playlist).catch(err => {
+        console.error(`[Admin] Erro ao sincronizar playlist ${id}:`, err.message);
+    });
+}));
+
 export default router;
+

@@ -7,28 +7,70 @@ import { v4 as uuidv4 } from 'uuid';
 
 console.log('🔄 Iniciando scheduler de jobs...');
 
+// Job: Resetar playlists travadas em "syncing" (a cada 15 minutos)
+cron.schedule('*/15 * * * *', async () => {
+    console.log('[JOB] Verificando playlists travadas...');
+
+    try {
+        // Resetar playlists que estão em "syncing" há mais de 30 minutos
+        const stuckPlaylists = await query(`
+            UPDATE playlists
+            SET sync_status = 'error',
+                sync_error = 'Sincronização travada - resetada automaticamente'
+            WHERE sync_status = 'syncing'
+                AND updated_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+        `);
+
+        if (stuckPlaylists.affectedRows > 0) {
+            console.log(`[JOB] ${stuckPlaylists.affectedRows} playlists travadas resetadas`);
+            await logSystem('warning', 'jobs', 'Playlists travadas resetadas', { count: stuckPlaylists.affectedRows });
+        }
+
+        // Resetar EPG sources travados também
+        const stuckEpg = await query(`
+            UPDATE epg_sources
+            SET sync_status = 'error',
+                sync_error = 'Sincronização travada - resetada automaticamente'
+            WHERE sync_status = 'syncing'
+                AND updated_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+        `);
+
+        if (stuckEpg.affectedRows > 0) {
+            console.log(`[JOB] ${stuckEpg.affectedRows} fontes EPG travadas resetadas`);
+        }
+
+    } catch (error) {
+        console.error('[JOB] Erro ao verificar playlists travadas:', error);
+    }
+});
+
 // Job: Atualizar playlists (a cada hora)
 cron.schedule('0 * * * *', async () => {
     console.log('[JOB] Verificando playlists para atualização...');
 
     try {
         // Buscar playlists que precisam de atualização
+        // Inclui playlists com status 'error' ou 'pending' para retry
         const playlists = await query(`
-            SELECT id, name, source_url, update_interval, last_sync_at
+            SELECT id, name, source_url, update_interval, last_sync_at, sync_status
             FROM playlists
             WHERE source_type = 'url'
                 AND auto_update = TRUE
                 AND is_active = TRUE
+                AND sync_status != 'syncing'
                 AND (
                     last_sync_at IS NULL
                     OR TIMESTAMPDIFF(HOUR, last_sync_at, NOW()) >= update_interval
+                    OR sync_status = 'error'
                 )
+            ORDER BY last_sync_at IS NULL DESC, last_sync_at ASC
             LIMIT 10
         `);
 
         console.log(`[JOB] ${playlists.length} playlists para atualizar`);
 
         for (const playlist of playlists) {
+            console.log(`[JOB] Atualizando: ${playlist.name} (status anterior: ${playlist.sync_status})`);
             await updatePlaylist(playlist);
         }
 
