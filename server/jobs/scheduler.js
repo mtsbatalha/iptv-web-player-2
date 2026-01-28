@@ -12,13 +12,19 @@ cron.schedule('*/15 * * * *', async () => {
     console.log('[JOB] Verificando playlists travadas...');
 
     try {
-        // Resetar playlists que estão em "syncing" há mais de 30 minutos
+        // Resetar playlists que estão em "syncing" há mais de 15 minutos
+        // Usamos created_at ou last_sync_at como referência, não updated_at
+        // (updated_at é atualizado automaticamente pelo MySQL e causa loop infinito)
         const stuckPlaylists = await query(`
             UPDATE playlists
             SET sync_status = 'error',
-                sync_error = 'Sincronização travada - resetada automaticamente'
+                sync_error = 'Sincronização travada - resetada automaticamente',
+                updated_at = NOW()
             WHERE sync_status = 'syncing'
-                AND updated_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+                AND (
+                    (last_sync_at IS NULL AND created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE))
+                    OR (last_sync_at IS NOT NULL AND last_sync_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE))
+                )
         `);
 
         if (stuckPlaylists.affectedRows > 0) {
@@ -30,9 +36,13 @@ cron.schedule('*/15 * * * *', async () => {
         const stuckEpg = await query(`
             UPDATE epg_sources
             SET sync_status = 'error',
-                sync_error = 'Sincronização travada - resetada automaticamente'
+                sync_error = 'Sincronização travada - resetada automaticamente',
+                updated_at = NOW()
             WHERE sync_status = 'syncing'
-                AND updated_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+                AND (
+                    (last_updated_at IS NULL AND created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE))
+                    OR (last_updated_at IS NOT NULL AND last_updated_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE))
+                )
         `);
 
         if (stuckEpg.affectedRows > 0) {
