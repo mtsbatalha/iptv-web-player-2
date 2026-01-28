@@ -430,71 +430,90 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
     try {
         console.log(`[Sync] Iniciando sincronização (ID: ${playlistId})...`);
 
-        // Fazer parse
-        const parseResult = await m3uParser.parseFromUrl(sourceUrl);
+        // Atualizar last_sync_at imediatamente para evitar que o job de reset interfira
+        await query(`
+            UPDATE playlists 
+            SET last_sync_at = NOW() 
+            WHERE id = ?
+        `, [playlistId]);
+
+        // Timeout de 5 minutos para o download/parse
+        const parsePromise = m3uParser.parseFromUrl(sourceUrl);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout ao baixar playlist (5min)')), 300000)
+        );
+
+        const parseResult = await Promise.race([parsePromise, timeoutPromise]);
         console.log(`[Sync] Parse concluído: ${parseResult.totalChannels} canais, ${parseResult.totalCategories} categorias`);
 
-        // Deletar canais e categorias antigos
-        await query('DELETE FROM channels WHERE playlist_id = ?', [playlistId]);
-        await query('DELETE FROM categories WHERE playlist_id = ?', [playlistId]);
-
-        // Inserir categorias
-        const categoryMap = new Map();
-        for (const categoryName of parseResult.categories) {
-            const slug = categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            const result = await query(`
-                INSERT INTO categories (user_id, playlist_id, name, slug)
-                VALUES (?, ?, ?, ?)
-            `, [userId, playlistId, categoryName, slug]);
-            categoryMap.set(categoryName, result.insertId);
+        if (!parseResult || !parseResult.channels || parseResult.channels.length === 0) {
+            throw new Error('Playlist vazia ou sem canais válidos');
         }
 
-        // Inserir canais em lotes usando INSERT múltiplo
-        console.log(`[Sync] Inserindo ${parseResult.channels.length} canais...`);
-        const BATCH_SIZE = 500;
-        let inserted = 0;
+        // Usar transação para garantir atomicidade
+        await transaction(async (conn) => {
+            // Deletar canais e categorias antigos
+            await conn.execute('DELETE FROM channels WHERE playlist_id = ?', [playlistId]);
+            await conn.execute('DELETE FROM categories WHERE playlist_id = ?', [playlistId]);
 
-        for (let i = 0; i < parseResult.channels.length; i += BATCH_SIZE) {
-            const batch = parseResult.channels.slice(i, i + BATCH_SIZE);
+            // Inserir categorias
+            const categoryMap = new Map();
+            for (const categoryName of parseResult.categories) {
+                const slug = categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                const [result] = await conn.execute(`
+                    INSERT INTO categories (user_id, playlist_id, name, slug)
+                    VALUES (?, ?, ?, ?)
+                `, [userId, playlistId, categoryName, slug]);
+                categoryMap.set(categoryName, result.insertId);
+            }
 
-            if (batch.length > 0) {
-                const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-                const values = [];
+            // Inserir canais em lotes usando INSERT múltiplo
+            console.log(`[Sync] Inserindo ${parseResult.channels.length} canais...`);
+            const BATCH_SIZE = 500;
+            let inserted = 0;
 
-                for (const channel of batch) {
-                    const channelUuid = uuidv4();
-                    const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+            for (let i = 0; i < parseResult.channels.length; i += BATCH_SIZE) {
+                const batch = parseResult.channels.slice(i, i + BATCH_SIZE);
 
-                    values.push(
-                        channelUuid,
-                        playlistId,
-                        categoryId,
-                        channel.name,
-                        channel.streamUrl,
-                        channel.tvgLogo || null,
-                        channel.tvgId || null,
-                        channel.tvgName || null,
-                        channel.tvgLogo || null,
-                        channel.groupTitle || null,
-                        channel.language || null,
-                        channel.country || null,
-                        channel.streamType,
-                        channel.isAdult ? 1 : 0,
-                        channel.quality || null
-                    );
+                if (batch.length > 0) {
+                    const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+                    const values = [];
+
+                    for (const channel of batch) {
+                        const channelUuid = uuidv4();
+                        const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+
+                        values.push(
+                            channelUuid,
+                            playlistId,
+                            categoryId,
+                            channel.name,
+                            channel.streamUrl,
+                            channel.tvgLogo || null,
+                            channel.tvgId || null,
+                            channel.tvgName || null,
+                            channel.tvgLogo || null,
+                            channel.groupTitle || null,
+                            channel.language || null,
+                            channel.country || null,
+                            channel.streamType,
+                            channel.isAdult ? 1 : 0,
+                            channel.quality || null
+                        );
+                    }
+
+                    await conn.execute(`
+                        INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, language, country, stream_type, is_adult, quality)
+                        VALUES ${placeholders}
+                    `, values);
                 }
 
-                await query(`
-                    INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, language, country, stream_type, is_adult, quality)
-                    VALUES ${placeholders}
-                `, values);
+                inserted += batch.length;
+                if (inserted % 1000 === 0 || inserted === parseResult.channels.length) {
+                    console.log(`[Sync] Progresso: ${inserted}/${parseResult.channels.length} canais`);
+                }
             }
-
-            inserted += batch.length;
-            if (inserted % 1000 === 0 || inserted === parseResult.channels.length) {
-                console.log(`[Sync] Progresso: ${inserted}/${parseResult.channels.length} canais`);
-            }
-        }
+        });
 
         // Atualizar status para sucesso
         await query(`
@@ -506,7 +525,11 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
 
     } catch (error) {
         console.error(`[Sync] Erro ao sincronizar playlist (ID: ${playlistId}):`, error.message);
-        await query('UPDATE playlists SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, playlistId]);
+        await query(`
+            UPDATE playlists 
+            SET sync_status = 'error', sync_error = ?, last_sync_at = NOW() 
+            WHERE id = ?
+        `, [error.message, playlistId]);
     }
 }
 

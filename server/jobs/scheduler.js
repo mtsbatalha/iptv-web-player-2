@@ -228,9 +228,24 @@ async function updatePlaylist(playlist) {
     console.log(`[JOB] Atualizando playlist: ${playlist.name}`);
 
     try {
-        await query('UPDATE playlists SET sync_status = ? WHERE id = ?', ['syncing', playlist.id]);
+        // Marcar como syncing E atualizar last_sync_at para evitar que o job de reset interfira
+        await query(`
+            UPDATE playlists 
+            SET sync_status = 'syncing', last_sync_at = NOW() 
+            WHERE id = ?
+        `, [playlist.id]);
 
-        const parseResult = await m3uParser.parseFromUrl(playlist.source_url);
+        // Timeout de 5 minutos para o download/parse
+        const parsePromise = m3uParser.parseFromUrl(playlist.source_url);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout ao baixar playlist (5min)')), 300000)
+        );
+
+        const parseResult = await Promise.race([parsePromise, timeoutPromise]);
+
+        if (!parseResult || !parseResult.channels || parseResult.channels.length === 0) {
+            throw new Error('Playlist vazia ou sem canais válidos');
+        }
 
         await transaction(async (conn) => {
             // Deletar canais antigos
@@ -250,20 +265,25 @@ async function updatePlaylist(playlist) {
                 categoryMap.set(categoryName, result.insertId);
             }
 
-            // Reinserir canais
-            for (const channel of parseResult.channels) {
-                const channelUuid = uuidv4();
-                const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+            // Reinserir canais em lotes para melhor performance
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < parseResult.channels.length; i += BATCH_SIZE) {
+                const batch = parseResult.channels.slice(i, i + BATCH_SIZE);
 
-                await conn.execute(`
-                    INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, stream_type, is_adult, quality)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    channelUuid, playlist.id, categoryId, channel.name, channel.streamUrl,
-                    channel.tvgLogo || null, channel.tvgId || null, channel.tvgName || null,
-                    channel.tvgLogo || null, channel.groupTitle || null, channel.streamType,
-                    channel.isAdult, channel.quality || null
-                ]);
+                for (const channel of batch) {
+                    const channelUuid = uuidv4();
+                    const categoryId = channel.groupTitle ? categoryMap.get(channel.groupTitle) : null;
+
+                    await conn.execute(`
+                        INSERT INTO channels (uuid, playlist_id, category_id, name, stream_url, logo_url, tvg_id, tvg_name, tvg_logo, group_title, stream_type, is_adult, quality)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        channelUuid, playlist.id, categoryId, channel.name, channel.streamUrl,
+                        channel.tvgLogo || null, channel.tvgId || null, channel.tvgName || null,
+                        channel.tvgLogo || null, channel.groupTitle || null, channel.streamType,
+                        channel.isAdult, channel.quality || null
+                    ]);
+                }
             }
         });
 
@@ -277,7 +297,11 @@ async function updatePlaylist(playlist) {
 
     } catch (error) {
         console.error(`[JOB] Erro ao atualizar playlist ${playlist.name}:`, error.message);
-        await query('UPDATE playlists SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, playlist.id]);
+        await query(`
+            UPDATE playlists 
+            SET sync_status = 'error', sync_error = ?, last_sync_at = NOW() 
+            WHERE id = ?
+        `, [error.message, playlist.id]);
     }
 }
 
