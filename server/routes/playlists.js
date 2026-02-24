@@ -5,7 +5,7 @@ import { asyncHandler, Errors } from '../middleware/errorHandler.js';
 import { authenticate, checkPlanLimit } from '../middleware/auth.js';
 import { playlistValidators, paginationValidator, idValidator } from '../middleware/validators.js';
 import { uploadPlaylist, deleteFile } from '../middleware/upload.js';
-import { logActivity } from '../middleware/logger.js';
+import { logActivity, logSystem } from '../middleware/logger.js';
 import m3uParser from '../services/m3uParser.js';
 
 const router = express.Router();
@@ -231,10 +231,12 @@ async function processPlaylistChannels(playlistId, sourceUrl, userId) {
         }
 
         console.log(`[Playlist] Importação concluída com sucesso! (ID: ${playlistId})`);
+        await logSystem('info', 'playlists', `Playlist importada com sucesso`, { id: playlistId, channels: parseResult.totalChannels });
 
     } catch (error) {
         console.error(`[Playlist] Erro ao processar playlist (ID: ${playlistId}):`, error.message);
         await query('UPDATE playlists SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, playlistId]);
+        await logSystem('error', 'playlists', `Falha ao importar playlist`, { id: playlistId, error: error.message });
     }
 }
 
@@ -547,6 +549,7 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
         `, [parseResult.totalChannels, playlistId]);
 
         console.log(`[Sync] ✅ Sincronização concluída! (ID: ${playlistId}, canais: ${parseResult.totalChannels})`);
+        await logSystem('info', 'playlists', `Playlist sincronizada com sucesso`, { id: playlistId, channels: parseResult.totalChannels });
 
     } catch (error) {
         console.error(`[Sync] ❌ Erro ao sincronizar playlist (ID: ${playlistId}):`, error.message);
@@ -555,6 +558,7 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
             SET sync_status = 'error', sync_error = ?, last_sync_at = NOW() 
             WHERE id = ?
         `, [error.message.substring(0, 500), playlistId]);
+        await logSystem('error', 'playlists', `Falha ao sincronizar playlist`, { id: playlistId, error: error.message });
     }
 }
 

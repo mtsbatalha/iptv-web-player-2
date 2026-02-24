@@ -397,10 +397,12 @@ async function updateEpgSource(source) {
         `, [parseResult.totalPrograms, source.id]);
 
         console.log(`[JOB] EPG ${source.name} atualizado: ${parseResult.totalPrograms} programas`);
+        await logSystem('info', 'jobs', `EPG atualizado: ${source.name}`, { id: source.id, programs: parseResult.totalPrograms, channels: parseResult.totalChannels });
 
     } catch (error) {
         console.error(`[JOB] Erro ao atualizar EPG ${source.name}:`, error.message);
         await query('UPDATE epg_sources SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, source.id]);
+        await logSystem('error', 'jobs', `Falha ao atualizar EPG: ${source.name}`, { id: source.id, error: error.message });
     }
 }
 

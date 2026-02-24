@@ -3,7 +3,7 @@ import { query, transaction } from '../database/connection.js';
 import { asyncHandler, Errors } from '../middleware/errorHandler.js';
 import { authenticate, requirePlanFeature } from '../middleware/auth.js';
 import { epgValidators, idValidator } from '../middleware/validators.js';
-import { logActivity } from '../middleware/logger.js';
+import { logActivity, logSystem } from '../middleware/logger.js';
 import epgParser from '../services/epgParser.js';
 
 const router = express.Router();
@@ -128,6 +128,8 @@ router.post('/sources/:id/sync', authenticate, requirePlanFeature('epg'), idVali
             WHERE id = ?
         `, [parseResult.totalPrograms, id]);
 
+        await logSystem('info', 'epg', `EPG sincronizado manualmente`, { id, programs: parseResult.totalPrograms, channels: parseResult.totalChannels, userId: req.user.id });
+
         res.json({
             success: true,
             message: 'EPG sincronizado com sucesso',
@@ -139,6 +141,7 @@ router.post('/sources/:id/sync', authenticate, requirePlanFeature('epg'), idVali
 
     } catch (error) {
         await query('UPDATE epg_sources SET sync_status = ?, sync_error = ? WHERE id = ?', ['error', error.message, id]);
+        await logSystem('error', 'epg', `Falha ao sincronizar EPG`, { id, error: error.message, userId: req.user.id });
         throw error;
     }
 }));
