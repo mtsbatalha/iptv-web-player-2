@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { apiHelpers } from '../services/api';
 import {
     HiPlus, HiLink, HiUpload, HiRefresh, HiTrash,
-    HiDotsVertical, HiCheck, HiExclamation, HiClock
+    HiCheck, HiExclamation, HiClock, HiInformationCircle
 } from 'react-icons/hi';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -14,7 +14,11 @@ export default function Playlists() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [addType, setAddType] = useState('url');
     const [submitting, setSubmitting] = useState(false);
+    const [syncingIds, setSyncingIds] = useState(new Set());
+    const [expandedError, setExpandedError] = useState(null);
     const fileInputRef = useRef(null);
+    const pollRef = useRef(null);
+    const syncingIdsRef = useRef(new Set());
 
     const [formData, setFormData] = useState({
         name: '',
@@ -23,20 +27,84 @@ export default function Playlists() {
         updateInterval: 24
     });
 
-    useEffect(() => {
-        loadPlaylists();
-    }, []);
-
-    const loadPlaylists = async () => {
+    const loadPlaylists = useCallback(async () => {
         try {
             const response = await apiHelpers.getPlaylists();
-            setPlaylists(response.data.data.playlists);
+            const list = response.data.data.playlists;
+            setPlaylists(list);
+
+            // Detectar playlists em sincronização para iniciar polling
+            const syncing = new Set(list.filter(p => p.sync_status === 'syncing').map(p => p.id));
+            syncingIdsRef.current = syncing;
+            setSyncingIds(new Set(syncing));
+            return syncing;
         } catch (error) {
             console.error('Erro ao carregar playlists:', error);
+            return new Set();
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    // Polling de status enquanto houver playlists sincronizando
+    const startPolling = useCallback(() => {
+        if (pollRef.current) clearInterval(pollRef.current);
+        if (syncingIdsRef.current.size === 0) return;
+
+        pollRef.current = setInterval(async () => {
+            const currentIds = new Set(syncingIdsRef.current);
+            if (currentIds.size === 0) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+                return;
+            }
+
+            try {
+                const stillSyncing = new Set();
+
+                await Promise.all([...currentIds].map(async (id) => {
+                    const res = await apiHelpers.getPlaylistSyncStatus(id);
+                    const { sync_status, sync_error, channel_count } = res.data.data;
+
+                    if (sync_status === 'syncing') {
+                        stillSyncing.add(id);
+                    } else {
+                        // Status mudou – atualizar playlist na lista
+                        setPlaylists(prev => prev.map(p =>
+                            p.id === id
+                                ? { ...p, sync_status, sync_error, channel_count }
+                                : p
+                        ));
+
+                        if (sync_status === 'success') {
+                            toast.success(`Playlist sincronizada com ${channel_count?.toLocaleString('pt-BR')} canais!`);
+                        } else if (sync_status === 'error') {
+                            toast.error(`Erro na sincronização: ${sync_error || 'Erro desconhecido'}`, { duration: 8000 });
+                        }
+                    }
+                }));
+
+                syncingIdsRef.current = stillSyncing;
+                setSyncingIds(new Set(stillSyncing));
+
+                if (stillSyncing.size === 0) {
+                    clearInterval(pollRef.current);
+                    pollRef.current = null;
+                }
+            } catch (err) {
+                console.error('Erro no polling:', err);
+            }
+        }, 5000);
+    }, []);
+
+    useEffect(() => {
+        loadPlaylists().then(syncing => {
+            if (syncing.size > 0) startPolling();
+        });
+        return () => {
+            if (pollRef.current) clearInterval(pollRef.current);
+        };
+    }, [loadPlaylists, startPolling]);
 
     const closeModal = () => {
         setShowAddModal(false);
@@ -49,10 +117,7 @@ export default function Playlists() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        // Prevenir duplo clique
         if (submitting) return;
-
         setSubmitting(true);
 
         try {
@@ -64,12 +129,12 @@ export default function Playlists() {
                     updateInterval: formData.updateInterval
                 });
 
-                // Verificar se está sincronizando ou já concluiu
-                if (response.data.data.status === 'syncing') {
-                    toast.success('Playlist criada! Sincronizando canais em background...', { duration: 4000 });
-                } else {
-                    toast.success('Playlist adicionada com sucesso!');
-                }
+                const { playlistId } = response.data.data;
+                toast.success('Playlist criada! Sincronizando canais em background…', { duration: 5000 });
+                closeModal();
+                await loadPlaylists();
+                // Iniciar polling para a nova playlist (loadPlaylists já atualizou o ref)
+                startPolling();
             } else {
                 const file = fileInputRef.current?.files[0];
                 if (!file) {
@@ -82,15 +147,12 @@ export default function Playlists() {
                 formDataObj.append('playlist', file);
                 formDataObj.append('name', formData.name || file.name);
 
-                await apiHelpers.uploadPlaylist(formDataObj);
-                toast.success('Playlist adicionada com sucesso!');
+                const response = await apiHelpers.uploadPlaylist(formDataObj);
+                const { channelsImported } = response.data.data;
+                toast.success(`Playlist importada com ${channelsImported?.toLocaleString('pt-BR')} canais!`);
+                closeModal();
+                loadPlaylists();
             }
-
-            // Fechar modal e resetar form
-            closeModal();
-
-            // Recarregar lista imediatamente
-            loadPlaylists();
         } catch (error) {
             const errorMsg = error.response?.data?.error?.message || 'Erro ao adicionar playlist';
             toast.error(errorMsg);
@@ -100,13 +162,21 @@ export default function Playlists() {
     };
 
     const syncPlaylist = async (id) => {
+        if (syncingIds.has(id)) return;
+
         try {
-            toast.loading('Sincronizando...', { id: `sync-${id}` });
             await apiHelpers.syncPlaylist(id);
-            toast.success('Playlist sincronizada!', { id: `sync-${id}` });
-            loadPlaylists();
+            toast.success('Sincronização iniciada em background…', { duration: 4000 });
+
+            // Marcar como syncing localmente e iniciar polling
+            setPlaylists(prev => prev.map(p =>
+                p.id === id ? { ...p, sync_status: 'syncing', sync_error: null } : p
+            ));
+            syncingIdsRef.current = new Set([...syncingIdsRef.current, id]);
+            setSyncingIds(new Set(syncingIdsRef.current));
+            startPolling();
         } catch (error) {
-            toast.error('Erro ao sincronizar', { id: `sync-${id}` });
+            toast.error('Erro ao iniciar sincronização');
         }
     };
 
@@ -125,13 +195,13 @@ export default function Playlists() {
     const getStatusIcon = (status) => {
         switch (status) {
             case 'success':
-                return <HiCheck className="w-4 h-4 text-green-400" />;
+                return <HiCheck className="w-4 h-4 text-green-400" title="Sincronizado" />;
             case 'error':
-                return <HiExclamation className="w-4 h-4 text-red-400" />;
+                return <HiExclamation className="w-4 h-4 text-red-400" title="Erro na sincronização" />;
             case 'syncing':
-                return <HiRefresh className="w-4 h-4 text-yellow-400 animate-spin" />;
+                return <HiRefresh className="w-4 h-4 text-yellow-400 animate-spin" title="Sincronizando…" />;
             default:
-                return <HiClock className="w-4 h-4 text-gray-400" />;
+                return <HiClock className="w-4 h-4 text-gray-400" title="Aguardando" />;
         }
     };
 
@@ -163,16 +233,37 @@ export default function Playlists() {
                     {playlists.map((playlist) => (
                         <div key={playlist.id} className="card p-4">
                             <div className="flex items-start justify-between mb-4">
-                                <div>
-                                    <h3 className="font-medium text-white">{playlist.name}</h3>
+                                <div className="flex-1 min-w-0 pr-2">
+                                    <h3 className="font-medium text-white truncate">{playlist.name}</h3>
                                     <p className="text-sm text-gray-400 mt-1">
-                                        {playlist.channel_count} canais
+                                        {playlist.channel_count?.toLocaleString('pt-BR') ?? 0} canais
                                     </p>
                                 </div>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                     {getStatusIcon(playlist.sync_status)}
+                                    {playlist.sync_status === 'syncing' && (
+                                        <span className="text-xs text-yellow-400 ml-1">Sincronizando…</span>
+                                    )}
                                 </div>
                             </div>
+
+                            {/* Erro de sincronização */}
+                            {playlist.sync_status === 'error' && playlist.sync_error && (
+                                <div className="mb-3">
+                                    <button
+                                        onClick={() => setExpandedError(expandedError === playlist.id ? null : playlist.id)}
+                                        className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors"
+                                    >
+                                        <HiInformationCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                                        <span>{expandedError === playlist.id ? 'Ocultar erro' : 'Ver erro'}</span>
+                                    </button>
+                                    {expandedError === playlist.id && (
+                                        <div className="mt-1.5 p-2 rounded bg-red-950/50 border border-red-800/40 text-xs text-red-300 break-words">
+                                            {playlist.sync_error}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="flex items-center gap-2 text-xs text-gray-500 mb-4">
                                 {playlist.source_type === 'url' ? (
@@ -204,15 +295,26 @@ export default function Playlists() {
                                 {playlist.source_type === 'url' && (
                                     <button
                                         onClick={() => syncPlaylist(playlist.id)}
-                                        className="btn-icon"
-                                        title="Sincronizar"
+                                        disabled={syncingIds.has(playlist.id)}
+                                        className={clsx(
+                                            'btn-icon transition-opacity',
+                                            syncingIds.has(playlist.id) && 'opacity-40 cursor-not-allowed'
+                                        )}
+                                        title={syncingIds.has(playlist.id) ? 'Sincronizando…' : 'Sincronizar agora'}
                                     >
-                                        <HiRefresh className="w-5 h-5" />
+                                        <HiRefresh className={clsx(
+                                            'w-5 h-5',
+                                            syncingIds.has(playlist.id) && 'animate-spin'
+                                        )} />
                                     </button>
                                 )}
                                 <button
                                     onClick={() => deletePlaylist(playlist.id)}
-                                    className="btn-icon text-red-400 hover:text-red-300"
+                                    disabled={syncingIds.has(playlist.id)}
+                                    className={clsx(
+                                        'btn-icon text-red-400 hover:text-red-300',
+                                        syncingIds.has(playlist.id) && 'opacity-40 cursor-not-allowed'
+                                    )}
                                     title="Excluir"
                                 >
                                     <HiTrash className="w-5 h-5" />

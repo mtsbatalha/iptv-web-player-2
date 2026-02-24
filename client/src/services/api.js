@@ -105,6 +105,7 @@ export const apiHelpers = {
     updatePlaylist: (id, data) => api.put(`/playlists/${id}`, data),
     deletePlaylist: (id) => api.delete(`/playlists/${id}`),
     syncPlaylist: (id) => api.post(`/playlists/${id}/sync`),
+    getPlaylistSyncStatus: (id) => api.get(`/playlists/${id}/sync-status`),
 
     // Canais
     getChannels: (params) => api.get('/channels', { params }),

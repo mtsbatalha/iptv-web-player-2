@@ -382,6 +382,29 @@ router.put('/:id', authenticate, playlistValidators.update, asyncHandler(async (
     });
 }));
 
+// Status de sincronização (endpoint leve para polling)
+router.get('/:id/sync-status', authenticate, idValidator, asyncHandler(async (req, res) => {
+    const [row] = await query(
+        'SELECT id, sync_status, sync_error, channel_count, last_sync_at FROM playlists WHERE id = ? AND user_id = ?',
+        [req.params.id, req.user.id]
+    );
+
+    if (!row) {
+        throw Errors.NotFound('Playlist');
+    }
+
+    res.json({
+        success: true,
+        data: {
+            id: row.id,
+            sync_status: row.sync_status,
+            sync_error: row.sync_error,
+            channel_count: row.channel_count,
+            last_sync_at: row.last_sync_at
+        }
+    });
+}));
+
 // Sincronizar playlist (atualizar canais)
 router.post('/:id/sync', authenticate, idValidator, asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -437,10 +460,10 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
             WHERE id = ?
         `, [playlistId]);
 
-        // Timeout de 5 minutos para o download/parse
+        // Timeout de 45 minutos para playlists grandes
         const parsePromise = m3uParser.parseFromUrl(sourceUrl);
         const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout ao baixar playlist (5min)')), 300000)
+            setTimeout(() => reject(new Error('Timeout ao baixar playlist (45min)')), 2700000)
         );
 
         const parseResult = await Promise.race([parsePromise, timeoutPromise]);
@@ -509,8 +532,10 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
                 }
 
                 inserted += batch.length;
-                if (inserted % 1000 === 0 || inserted === parseResult.channels.length) {
+                if (inserted % 5000 === 0 || inserted === parseResult.channels.length) {
                     console.log(`[Sync] Progresso: ${inserted}/${parseResult.channels.length} canais`);
+                    // Atualizar last_sync_at periodicamente para evitar reset pelo job de stuck
+                    await query('UPDATE playlists SET last_sync_at = NOW() WHERE id = ?', [playlistId]);
                 }
             }
         });
@@ -521,15 +546,15 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
             WHERE id = ?
         `, [parseResult.totalChannels, playlistId]);
 
-        console.log(`[Sync] Sincronização concluída com sucesso! (ID: ${playlistId})`);
+        console.log(`[Sync] ✅ Sincronização concluída! (ID: ${playlistId}, canais: ${parseResult.totalChannels})`);
 
     } catch (error) {
-        console.error(`[Sync] Erro ao sincronizar playlist (ID: ${playlistId}):`, error.message);
+        console.error(`[Sync] ❌ Erro ao sincronizar playlist (ID: ${playlistId}):`, error.message);
         await query(`
             UPDATE playlists 
             SET sync_status = 'error', sync_error = ?, last_sync_at = NOW() 
             WHERE id = ?
-        `, [error.message, playlistId]);
+        `, [error.message.substring(0, 500), playlistId]);
     }
 }
 
