@@ -4,6 +4,11 @@
 -- Para hospedagem compartilhada (banco já existe)
 -- =====================================================
 
+-- Garantir charset utf8mb4 para suporte a caracteres especiais
+-- (grego, árabe, emojis, etc.)
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 -- =====================================================
 -- TABELAS DE USUÁRIOS E AUTENTICAÇÃO
 -- =====================================================
@@ -25,7 +30,7 @@ CREATE TABLE IF NOT EXISTS plans (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Usuários
 CREATE TABLE IF NOT EXISTS users (
@@ -47,7 +52,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Tokens de refresh
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -60,7 +65,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     revoked_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sessões de usuário
 CREATE TABLE IF NOT EXISTS user_sessions (
@@ -77,7 +82,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- TABELAS DE PLAYLISTS E CANAIS
@@ -104,7 +109,7 @@ CREATE TABLE IF NOT EXISTS playlists (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Categorias de canais
 CREATE TABLE IF NOT EXISTS categories (
@@ -121,7 +126,7 @@ CREATE TABLE IF NOT EXISTS categories (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Canais
 CREATE TABLE IF NOT EXISTS channels (
@@ -149,7 +154,7 @@ CREATE TABLE IF NOT EXISTS channels (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Índice para busca de canais
 CREATE INDEX idx_channels_name ON channels(name);
@@ -176,7 +181,7 @@ CREATE TABLE IF NOT EXISTS epg_sources (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Canais EPG (metadados do XMLTV)
 CREATE TABLE IF NOT EXISTS epg_channels (
@@ -190,7 +195,7 @@ CREATE TABLE IF NOT EXISTS epg_channels (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (epg_source_id) REFERENCES epg_sources(id) ON DELETE CASCADE,
     UNIQUE KEY unique_channel_source (epg_source_id, channel_id)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Programas EPG
 CREATE TABLE IF NOT EXISTS epg_programs (
@@ -215,7 +220,7 @@ CREATE TABLE IF NOT EXISTS epg_programs (
     metadata JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (epg_channel_id) REFERENCES epg_channels(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Índices para EPG
 CREATE INDEX idx_epg_programs_times ON epg_programs(start_time, end_time);
@@ -232,7 +237,7 @@ CREATE TABLE IF NOT EXISTS channel_epg_mapping (
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     FOREIGN KEY (epg_channel_id) REFERENCES epg_channels(id) ON DELETE CASCADE,
     UNIQUE KEY unique_mapping (channel_id, epg_channel_id)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- TABELAS DE FAVORITOS E HISTÓRICO
@@ -248,7 +253,7 @@ CREATE TABLE IF NOT EXISTS favorites (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     UNIQUE KEY unique_favorite (user_id, channel_id)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Histórico de visualização
 CREATE TABLE IF NOT EXISTS watch_history (
@@ -260,7 +265,7 @@ CREATE TABLE IF NOT EXISTS watch_history (
     device_type VARCHAR(50),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Índice para histórico
 CREATE INDEX idx_watch_history_user ON watch_history(user_id, watched_at DESC);
@@ -296,7 +301,7 @@ CREATE TABLE IF NOT EXISTS recordings (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     FOREIGN KEY (epg_program_id) REFERENCES epg_programs(id) ON DELETE SET NULL
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Índice para gravações
 CREATE INDEX idx_recordings_user ON recordings(user_id, status);
@@ -319,7 +324,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     user_agent VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Métricas de streaming
 CREATE TABLE IF NOT EXISTS streaming_metrics (
@@ -337,7 +342,7 @@ CREATE TABLE IF NOT EXISTS streaming_metrics (
     device_type VARCHAR(50),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Logs de sistema
 CREATE TABLE IF NOT EXISTS system_logs (
@@ -347,7 +352,7 @@ CREATE TABLE IF NOT EXISTS system_logs (
     message TEXT NOT NULL,
     context JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- TABELAS DE CONFIGURAÇÕES
@@ -362,7 +367,7 @@ CREATE TABLE IF NOT EXISTS settings (
     description TEXT,
     is_public BOOLEAN DEFAULT FALSE,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Configurações por usuário
 CREATE TABLE IF NOT EXISTS user_settings (
@@ -374,7 +379,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE KEY unique_user_setting (user_id, `key`)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =====================================================
 -- DADOS INICIAIS
