@@ -158,35 +158,33 @@ iptv-web-player/
 │       └── hooks/
 │           └── useRecording.js     # Hook de gravação
 ├── scripts/                        # Scripts de manutenção
-│   ├── backup.sh                   # Backup (Linux)
-│   ├── backup.ps1                  # Backup (Windows PowerShell)
-│   ├── restore.sh                  # Restore (Linux)
-│   ├── restore.ps1                 # Restore (Windows PowerShell)
-│   ├── fix-stuck-playlists.sql     # Fix playlists travadas em "syncing"
-│   └── fix-charset-utf8mb4.sql     # Migração charset para utf8mb4
+│   ├── linux/                      # Scripts para Linux
+│   │   ├── install.sh              # Instalação automática completa
+│   │   ├── uninstall.sh            # Remoção da instalação
+│   │   ├── update.sh               # Atualização da aplicação
+│   │   ├── start.sh                # Iniciar serviço
+│   │   ├── stop.sh                 # Parar serviço
+│   │   ├── restart.sh              # Reiniciar serviço
+│   │   ├── status.sh               # Status detalhado
+│   │   ├── logs.sh                 # Visualizar logs
+│   │   ├── rebuild-frontend.sh     # Reconstruir frontend
+│   │   ├── backup.sh               # Backup do banco e arquivos
+│   │   ├── restore.sh              # Restaurar backup
+│   │   ├── fix-stuck-playlists.sql # Fix playlists travadas
+│   │   └── fix-charset-utf8mb4.sql # Migração de charset
+│   └── windows/                    # Scripts para Windows
+│       ├── start.bat               # Iniciar aplicação
+│       ├── stop.bat                # Parar aplicação
+│       ├── restart.bat             # Reiniciar aplicação
+│       ├── status.bat              # Status detalhado
+│       ├── rebuild-frontend.bat    # Reconstruir frontend
+│       ├── backup.ps1              # Backup (PowerShell)
+│       └── restore.ps1             # Restore (PowerShell)
 ├── uploads/                        # Arquivos enviados (playlists M3U, avatars)
 ├── recordings/                     # Gravações DVR (arquivos MP4)
 ├── package.json                    # Dependências do backend
 ├── .env                            # Configuração (não versionado)
-├── .env.example                    # Exemplo de configuração
-│
-├── # Scripts Linux (systemd)
-├── install.sh                      # Instalação automática completa
-├── uninstall.sh                    # Remoção da instalação
-├── update.sh                       # Atualização da aplicação
-├── start.sh                        # Iniciar serviço
-├── stop.sh                         # Parar serviço
-├── restart.sh                      # Reiniciar serviço
-├── status.sh                       # Status detalhado
-├── logs.sh                         # Visualizar logs
-├── rebuild-frontend.sh             # Reconstruir frontend
-│
-├── # Scripts Windows
-├── start.bat                       # Iniciar aplicação
-├── stop.bat                        # Parar aplicação
-├── restart.bat                     # Reiniciar aplicação
-├── status.bat                      # Status detalhado
-└── rebuild-frontend.bat            # Reconstruir frontend
+└── .env.example                    # Exemplo de configuração
 ```
 
 ---
@@ -315,8 +313,8 @@ git clone https://github.com/seu-usuario/iptv-web-player.git
 cd iptv-web-player
 
 # Execute o instalador como root
-sudo chmod +x install.sh
-sudo ./install.sh
+sudo chmod +x scripts/linux/install.sh
+sudo ./scripts/linux/install.sh
 ```
 
 O instalador irá:
@@ -416,9 +414,9 @@ npm start
 ### Linux (com systemd - após install.sh)
 
 ```bash
-sudo ./start.sh       # Iniciar serviço
-sudo ./stop.sh        # Parar serviço
-sudo ./restart.sh     # Reiniciar serviço
+sudo ./scripts/linux/start.sh       # Iniciar serviço
+sudo ./scripts/linux/stop.sh        # Parar serviço
+sudo ./scripts/linux/restart.sh     # Reiniciar serviço
 ```
 
 Ou diretamente via systemctl:
@@ -432,10 +430,10 @@ sudo systemctl restart iptv-web-player
 ### Windows
 
 ```batch
-start.bat             :: Iniciar (modo desenvolvimento)
-start.bat --prod      :: Iniciar (modo produção)
-stop.bat              :: Parar todos os processos
-restart.bat           :: Reiniciar
+.\scripts\windows\start.bat             :: Iniciar (modo desenvolvimento)
+.\scripts\windows\start.bat --prod      :: Iniciar (modo produção)
+.\scripts\windows\stop.bat              :: Parar todos os processos
+.\scripts\windows\restart.bat           :: Reiniciar
 ```
 
 ### Manual (qualquer OS)
@@ -530,7 +528,7 @@ Se precisar reconstruir o projeto completamente:
 
 ```bash
 # 1. Parar o serviço
-sudo ./stop.sh
+sudo ./scripts/linux/stop.sh
 
 # 2. Limpar tudo
 rm -rf node_modules client/node_modules client/dist
@@ -547,14 +545,14 @@ npm run db:seed
 npm run build
 
 # 6. Reiniciar
-sudo ./start.sh
+sudo ./scripts/linux/start.sh
 ```
 
 ### Windows
 
 ```batch
 :: 1. Parar processos
-stop.bat
+.\scripts\windows\stop.bat
 
 :: 2. Limpar tudo
 rmdir /s /q node_modules
@@ -570,13 +568,13 @@ npm run db:migrate
 npm run db:seed
 
 :: 5. Reconstruir frontend
-rebuild-frontend.bat
+.\scripts\windows\rebuild-frontend.bat
 
 :: 6. Reiniciar
-start.bat
+.\scripts\windows\start.bat
 ```
 
-> Para reconstruir apenas o frontend sem perder dados, use `rebuild-frontend.sh` (Linux) ou `rebuild-frontend.bat` (Windows). Use `--full` / `-f` para limpar `node_modules` antes.
+> Para reconstruir apenas o frontend sem perder dados, use `scripts/linux/rebuild-frontend.sh` (Linux) ou `scripts/windows/rebuild-frontend.bat` (Windows). Use `--full` / `-f` para limpar `node_modules` antes.
 
 ---
 
@@ -586,19 +584,19 @@ start.bat
 
 ```bash
 # Menu interativo
-sudo ./scripts/backup.sh
+sudo ./scripts/linux/backup.sh
 
 # Backup direto via argumentos
-sudo ./scripts/backup.sh --db        # Apenas banco de dados
-sudo ./scripts/backup.sh --full      # Banco + uploads + recordings
-sudo ./scripts/backup.sh --list      # Listar backups
-sudo ./scripts/backup.sh --cleanup   # Limpar backups > 7 dias
+sudo ./scripts/linux/backup.sh --db        # Apenas banco de dados
+sudo ./scripts/linux/backup.sh --full      # Banco + uploads + recordings
+sudo ./scripts/linux/backup.sh --list      # Listar backups
+sudo ./scripts/linux/backup.sh --cleanup   # Limpar backups > 7 dias
 
 # Restauração
-sudo ./scripts/restore.sh                              # Menu interativo
-sudo ./scripts/restore.sh --db <arquivo.sql.gz>        # Restaurar banco
-sudo ./scripts/restore.sh --full <arquivo.tar.gz>      # Restaurar tudo
-sudo ./scripts/restore.sh --list                       # Listar backups
+sudo ./scripts/linux/restore.sh                              # Menu interativo
+sudo ./scripts/linux/restore.sh --db <arquivo.sql.gz>        # Restaurar banco
+sudo ./scripts/linux/restore.sh --full <arquivo.tar.gz>      # Restaurar tudo
+sudo ./scripts/linux/restore.sh --list                       # Listar backups
 ```
 
 Diretório padrão de backups: `/opt/iptv-backups/`
@@ -607,19 +605,19 @@ Diretório padrão de backups: `/opt/iptv-backups/`
 
 ```powershell
 # Menu interativo
-.\scripts\backup.ps1
+.\scripts\windows\backup.ps1
 
 # Backup direto
-.\scripts\backup.ps1 db          # Apenas banco de dados
-.\scripts\backup.ps1 full        # Banco + uploads + recordings
-.\scripts\backup.ps1 list        # Listar backups
-.\scripts\backup.ps1 cleanup     # Limpar backups > 7 dias
+.\scripts\windows\backup.ps1 db          # Apenas banco de dados
+.\scripts\windows\backup.ps1 full        # Banco + uploads + recordings
+.\scripts\windows\backup.ps1 list        # Listar backups
+.\scripts\windows\backup.ps1 cleanup     # Limpar backups > 7 dias
 
 # Restauração
-.\scripts\restore.ps1                          # Menu interativo
-.\scripts\restore.ps1 db <arquivo>             # Restaurar banco
-.\scripts\restore.ps1 full <arquivo.zip>       # Restaurar tudo
-.\scripts\restore.ps1 list                     # Listar backups
+.\scripts\windows\restore.ps1                          # Menu interativo
+.\scripts\windows\restore.ps1 db <arquivo>             # Restaurar banco
+.\scripts\windows\restore.ps1 full <arquivo.zip>       # Restaurar tudo
+.\scripts\windows\restore.ps1 list                     # Listar backups
 ```
 
 Diretório padrão de backups: `C:\iptv-backups\`
@@ -632,14 +630,14 @@ Você pode customizar os diretórios via variáveis de ambiente:
 # Linux
 export INSTALL_DIR=/opt/iptv-web-player
 export BACKUP_DIR=/opt/iptv-backups
-sudo -E ./scripts/backup.sh --full
+sudo -E ./scripts/linux/backup.sh --full
 ```
 
 ```powershell
 # Windows
 $env:INSTALL_DIR = "C:\iptv-web-player"
 $env:BACKUP_DIR = "D:\backups\iptv"
-.\scripts\backup.ps1 full
+.\scripts\windows\backup.ps1 full
 ```
 
 ---
@@ -688,10 +686,10 @@ npm run db:seed
 
 ```bash
 # Corrigir playlists travadas em status "syncing"
-mysql -u USER -p DB_NAME < scripts/fix-stuck-playlists.sql
+mysql -u USER -p DB_NAME < scripts/linux/fix-stuck-playlists.sql
 
 # Converter charset para utf8mb4 (se o banco foi criado com charset antigo)
-mysql -u USER -p DB_NAME < scripts/fix-charset-utf8mb4.sql
+mysql -u USER -p DB_NAME < scripts/linux/fix-charset-utf8mb4.sql
 ```
 
 ### Backup Manual do Banco
@@ -787,29 +785,29 @@ mysql -h HOST -u USER -p DB_NAME < backup.sql
 
 | Script | Descrição | Uso |
 |---|---|---|
-| `install.sh` | Instalação automática completa | `sudo ./install.sh` |
-| `uninstall.sh` | Remover instalação | `sudo ./uninstall.sh` |
-| `update.sh` | Atualizar aplicação (git pull + rebuild) | `sudo ./update.sh` |
-| `start.sh` | Iniciar serviço systemd | `sudo ./start.sh` |
-| `stop.sh` | Parar serviço | `sudo ./stop.sh` |
-| `restart.sh` | Reiniciar serviço | `sudo ./restart.sh` |
-| `status.sh` | Status detalhado | `sudo ./status.sh` |
-| `logs.sh` | Visualizar logs | `sudo ./logs.sh [-n 50] [-e] [-t]` |
-| `rebuild-frontend.sh` | Reconstruir frontend | `sudo ./rebuild-frontend.sh [--full]` |
-| `scripts/backup.sh` | Backup do banco e arquivos | `sudo ./scripts/backup.sh --full` |
-| `scripts/restore.sh` | Restaurar backup | `sudo ./scripts/restore.sh --full <arquivo>` |
+| `scripts/linux/install.sh` | Instalação automática completa | `sudo ./scripts/linux/install.sh` |
+| `scripts/linux/uninstall.sh` | Remover instalação | `sudo ./scripts/linux/uninstall.sh` |
+| `scripts/linux/update.sh` | Atualizar aplicação (git pull + rebuild) | `sudo ./scripts/linux/update.sh` |
+| `scripts/linux/start.sh` | Iniciar serviço systemd | `sudo ./scripts/linux/start.sh` |
+| `scripts/linux/stop.sh` | Parar serviço | `sudo ./scripts/linux/stop.sh` |
+| `scripts/linux/restart.sh` | Reiniciar serviço | `sudo ./scripts/linux/restart.sh` |
+| `scripts/linux/status.sh` | Status detalhado | `sudo ./scripts/linux/status.sh` |
+| `scripts/linux/logs.sh` | Visualizar logs | `sudo ./scripts/linux/logs.sh [-n 50] [-e] [-t]` |
+| `scripts/linux/rebuild-frontend.sh` | Reconstruir frontend | `sudo ./scripts/linux/rebuild-frontend.sh [--full]` |
+| `scripts/linux/backup.sh` | Backup do banco e arquivos | `sudo ./scripts/linux/backup.sh --full` |
+| `scripts/linux/restore.sh` | Restaurar backup | `sudo ./scripts/linux/restore.sh --full <arquivo>` |
 
 ### Windows
 
 | Script | Descrição | Uso |
 |---|---|---|
-| `start.bat` | Iniciar aplicação | `start.bat [--prod]` |
-| `stop.bat` | Parar processos | `stop.bat` |
-| `restart.bat` | Reiniciar | `restart.bat` |
-| `status.bat` | Status detalhado | `status.bat` |
-| `rebuild-frontend.bat` | Reconstruir frontend | `rebuild-frontend.bat [--full]` |
-| `scripts\backup.ps1` | Backup (PowerShell) | `.\scripts\backup.ps1 full` |
-| `scripts\restore.ps1` | Restore (PowerShell) | `.\scripts\restore.ps1 full <arquivo>` |
+| `scripts\windows\start.bat` | Iniciar aplicação | `.\scripts\windows\start.bat [--prod]` |
+| `scripts\windows\stop.bat` | Parar processos | `.\scripts\windows\stop.bat` |
+| `scripts\windows\restart.bat` | Reiniciar | `.\scripts\windows\restart.bat` |
+| `scripts\windows\status.bat` | Status detalhado | `.\scripts\windows\status.bat` |
+| `scripts\windows\rebuild-frontend.bat` | Reconstruir frontend | `.\scripts\windows\rebuild-frontend.bat [--full]` |
+| `scripts\windows\backup.ps1` | Backup (PowerShell) | `.\scripts\windows\backup.ps1 full` |
+| `scripts\windows\restore.ps1` | Restore (PowerShell) | `.\scripts\windows\restore.ps1 full <arquivo>` |
 
 ---
 
