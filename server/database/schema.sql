@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS playlists (
     last_sync_at TIMESTAMP NULL,
     sync_status ENUM('pending', 'syncing', 'success', 'error') DEFAULT 'pending',
     sync_error TEXT,
+    sync_retry_count INT NOT NULL DEFAULT 0,
     channel_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -59,18 +59,26 @@ cron.schedule('0 * * * *', async () => {
 
     try {
         // Buscar playlists que precisam de atualização
-        // Inclui playlists com status 'error' ou 'pending' para retry
+        // Playlists com erro usam backoff exponencial: interval * 2^retry_count
+        // Máximo de 5 retries para evitar loop infinito
         const playlists = await query(`
-            SELECT id, name, source_url, update_interval, last_sync_at, sync_status
+            SELECT id, name, source_url, update_interval, last_sync_at, sync_status, sync_retry_count
             FROM playlists
             WHERE source_type = 'url'
                 AND auto_update = TRUE
                 AND is_active = TRUE
                 AND sync_status != 'syncing'
+                AND (sync_status != 'error' OR sync_retry_count < 5)
                 AND (
                     last_sync_at IS NULL
-                    OR TIMESTAMPDIFF(HOUR, last_sync_at, NOW()) >= update_interval
-                    OR sync_status = 'error'
+                    OR (
+                        sync_status != 'error'
+                        AND TIMESTAMPDIFF(HOUR, last_sync_at, NOW()) >= update_interval
+                    )
+                    OR (
+                        sync_status = 'error'
+                        AND TIMESTAMPDIFF(HOUR, last_sync_at, NOW()) >= LEAST(update_interval * POW(2, sync_retry_count), 720)
+                    )
                 )
             ORDER BY last_sync_at IS NULL DESC, last_sync_at ASC
             LIMIT 10
@@ -327,7 +335,7 @@ async function updatePlaylist(playlist) {
 
         await query(`
             UPDATE playlists
-            SET sync_status = 'success', sync_error = NULL, channel_count = ?, last_sync_at = NOW()
+            SET sync_status = 'success', sync_error = NULL, sync_retry_count = 0, channel_count = ?, last_sync_at = NOW()
             WHERE id = ?
         `, [parseResult.totalChannels, playlist.id]);
 
@@ -335,13 +343,14 @@ async function updatePlaylist(playlist) {
         await logSystem('info', 'jobs', `Playlist atualizada: ${playlist.name}`, { id: playlist.id, channels: parseResult.totalChannels });
 
     } catch (error) {
-        console.error(`[JOB] ❌ Erro ao atualizar playlist "${playlist.name}":`, error.message);
+        const retryCount = (playlist.sync_retry_count || 0) + 1;
+        console.error(`[JOB] ❌ Erro ao atualizar playlist "${playlist.name}" (retry ${retryCount}/5):`, error.message);
         await query(`
             UPDATE playlists 
-            SET sync_status = 'error', sync_error = ?, last_sync_at = NOW() 
+            SET sync_status = 'error', sync_error = ?, sync_retry_count = ?, last_sync_at = NOW() 
             WHERE id = ?
-        `, [error.message.substring(0, 500), playlist.id]);
-        await logSystem('error', 'jobs', `Falha ao atualizar playlist: ${playlist.name}`, { id: playlist.id, error: error.message });
+        `, [error.message.substring(0, 500), retryCount, playlist.id]);
+        await logSystem('error', 'jobs', `Falha ao atualizar playlist: ${playlist.name}`, { id: playlist.id, error: error.message, retryCount });
     }
 }
 
