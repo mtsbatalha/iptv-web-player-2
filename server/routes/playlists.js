@@ -434,8 +434,8 @@ router.post('/:id/sync', authenticate, idValidator, asyncHandler(async (req, res
         });
     }
 
-    // Marcar como sincronizando
-    await query('UPDATE playlists SET sync_status = ? WHERE id = ?', ['syncing', id]);
+    // Marcar como sincronizando e resetar contador de retries (sync manual)
+    await query('UPDATE playlists SET sync_status = ?, sync_retry_count = 0 WHERE id = ?', ['syncing', id]);
 
     // Responder imediatamente
     res.json({
@@ -542,9 +542,9 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
             }
         });
 
-        // Atualizar status para sucesso
+        // Atualizar status para sucesso e resetar contador de retries
         await query(`
-            UPDATE playlists SET sync_status = 'success', sync_error = NULL, channel_count = ?, last_sync_at = NOW()
+            UPDATE playlists SET sync_status = 'success', sync_error = NULL, sync_retry_count = 0, channel_count = ?, last_sync_at = NOW()
             WHERE id = ?
         `, [parseResult.totalChannels, playlistId]);
 
@@ -555,7 +555,7 @@ async function syncPlaylistChannels(playlistId, sourceUrl, userId) {
         console.error(`[Sync] ❌ Erro ao sincronizar playlist (ID: ${playlistId}):`, error.message);
         await query(`
             UPDATE playlists 
-            SET sync_status = 'error', sync_error = ?, last_sync_at = NOW() 
+            SET sync_status = 'error', sync_error = ?, sync_retry_count = sync_retry_count + 1, last_sync_at = NOW() 
             WHERE id = ?
         `, [error.message.substring(0, 500), playlistId]);
         await logSystem('error', 'playlists', `Falha ao sincronizar playlist`, { id: playlistId, error: error.message });
